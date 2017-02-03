@@ -7,7 +7,7 @@ import requests
 import hashlib
 import json
 
-class GatecoinEig(object):
+class ExchGatecoinEig(object):
     """
     Exchange interface gateway
     """

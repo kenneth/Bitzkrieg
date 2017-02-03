@@ -1,0 +1,6 @@
+.c9/*
+.cache/*
+.git/*
+.setup.py
+*.pyc
+bitz/__pycache__/*
