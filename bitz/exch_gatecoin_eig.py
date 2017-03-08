@@ -1,4 +1,5 @@
 #!/usr/bin/python3  
+from bitz.logger import ConsoleLogger
 import time
 import base64
 import hmac
@@ -13,6 +14,7 @@ class ExchGatecoinEig(object):
     """
     
     def __init__(self,
+                 logger,
                  key,
                  secret,
                  api_url = "https://api.gatecoin.com/"):
@@ -23,6 +25,7 @@ class ExchGatecoinEig(object):
         :param secret       Private key
         :param api_url      API URL
         """
+        self.logger = logger
         self.key = key
         self.secret = secret
         self.api_url = api_url
@@ -56,9 +59,16 @@ class ExchGatecoinEig(object):
           R = requests.post     
           
         data = json.dumps(params)
+        self.logger.info('OUT', 'url=%s\ndata=%s\nheaders=%s\n' % \
+                                    (url, data, headers))
         response = R(url, data=data, headers=headers)
+        if response.status_code == 200:
+            response = response.json()
+        else:
+            response = {'failed_code': response.status_code, 'failed_text': response.text}
+        self.logger.info('IN', response)
         
-        return response.json()
+        return response
     
     def check_success(self, msg):
         return 'responseStatus' in msg and \
@@ -70,7 +80,7 @@ if __name__ == '__main__':
     
     key = input("What is the public key? ")
     secret = input("What is the private key? ")
-    gw = GatecoinEig(key, secret)
+    gw = ExchGatecoinEig(ConsoleLogger.static_logger, key, secret)
     ret = gw.send_request("Balance/Balances", "GET")
     print(ret)
     print(gw.check_success(ret))

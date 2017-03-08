@@ -4,3 +4,7 @@
 .setup.py
 *.pyc
 bitz/__pycache__/*
+q/*
+third-party/*
+dump.rdb
+archive/*
