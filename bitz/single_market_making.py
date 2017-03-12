@@ -7,9 +7,23 @@ from bitz.market_data_feed import MarketDataFeed
 from bitz.redis_database_client import RedisDatabaseClient
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import ConsoleLogger
-from bitz.util import update_sendingtime
-from datetime import datetime
+from bitz.util import update_fixtime, fixmsg2dict
+from datetime import datetime, timedelta
 import argparse
+import json
+
+try:
+    import ConfigParser
+except ImportError:
+    import configparser as ConfigParser
+
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+
+    if isinstance(obj, datetime):
+        serial = obj.isoformat()
+        return serial
+    raise TypeError ("Type not serializable")
 
 class SingleMarketMaking(RealTimeStrategy):
     """
@@ -27,8 +41,9 @@ class SingleMarketMaking(RealTimeStrategy):
         ordsvr.strategy_risk_exposure[self]['max_bid_amt'] = self.fixed_order_amt
         ordsvr.strategy_risk_exposure[self]['max_ask_amt'] = self.fixed_order_amt
         self.target_instmt = ('Gatecoin', 'BTCHKD', 0.1)
-        self.referenced_instmts = [('Bitfinex', 'BTCUSD', 7.75, 7.80)]
+        self.referenced_instmts = [('Quoine', 'BTCUSD', 7.75, 7.80)]
         self.opened_orders = []
+        self.last_status_inquiry_time = datetime.now()
     
     def register_market_data_feed(self, market_data_feed):
         """
@@ -44,7 +59,10 @@ class SingleMarketMaking(RealTimeStrategy):
                 "Market data feed is not registered."
         
         while True:
-            snapshot = self.market_data_feed.get_snapshot()
+            snapshot = self.market_data_feed.get_snapshot(timeout=5000)
+            target_exchange = self.target_instmt[0]
+            target_instmt = self.target_instmt[1]
+            tick_size = self.target_instmt[2]
             
             # Check strategy
             if snapshot is not None:
@@ -52,9 +70,6 @@ class SingleMarketMaking(RealTimeStrategy):
                 1. Calculate the fair price of the target instrument
                 2. If there is no open position, open a new order
                 """
-                target_exchange = self.target_instmt[0]
-                target_instmt = self.target_instmt[1]
-                tick_size = self.target_instmt[2]
                 fair_bid_price = 1e9
                 fair_ask_price = 0
                 cal_instmts = self.referenced_instmts[:]
@@ -75,6 +90,8 @@ class SingleMarketMaking(RealTimeStrategy):
                 assert target_sell_currency in target_available_balance.keys(), \
                         "Target sell currency %s is not found in exchange %s" % \
                         (target_sell_currency, target_exchange)
+                target_buy_margin = target_available_balance[target_buy_currency]
+                target_sell_margin = target_available_balance[target_sell_currency]
                 
                 for i in range(0, len(cal_instmts)):
                     referenced = cal_instmts[i]
@@ -100,18 +117,22 @@ class SingleMarketMaking(RealTimeStrategy):
                         fair_bid_price = min(fair_bid_price, depth.b1 + bid_rate)
                         fair_ask_price = max(fair_ask_price, depth.a1 - ask_rate)                        
                 
-                self.logger.info('test', "FBid = %.6f, FAsk = %.6f" % (fair_bid_price, fair_ask_price))
+                # self.logger.info(self.__class__.__name__, "FBid = %.6f, FAsk = %.6f" % \
+                #                     (fair_bid_price, fair_ask_price))
+                                    
                 for side in [Fix.Tags.Side.Values.BUY, Fix.Tags.Side.Values.SELL]:
                     # Check risk limit
                     if side == Fix.Tags.Side.Values.BUY and \
                        (self.ordsvr.strategy_risk_exposure[self]['open_bid_amt'] >= \
                        self.ordsvr.strategy_risk_exposure[self]['max_bid_amt'] or \
-                       fair_bid_price >= 1e9):
+                       fair_bid_price >= 1e9 or \
+                       target_buy_margin < fair_bid_price * self.fixed_order_amt):
                         continue
                     elif side == Fix.Tags.Side.Values.SELL and \
                        (self.ordsvr.strategy_risk_exposure[self]['open_ask_amt'] >= \
                        self.ordsvr.strategy_risk_exposure[self]['max_ask_amt'] or \
-                       fair_ask_price <= 0):
+                       fair_ask_price <= 0 or \
+                       target_sell_margin < self.fixed_order_amt):
                         continue
                     
                     # Create an order
@@ -119,9 +140,9 @@ class SingleMarketMaking(RealTimeStrategy):
                     order_request.Instrument.SecurityExchange.value = self.target_instmt[0]
                     order_request.Instrument.Symbol.value = self.target_instmt[1]
                     order_request.OrderQtyData.OrderQty.value = self.fixed_order_amt
-                    order_request.ClOrdID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+                    order_request.ClOrdID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMNEW')
                     order_request.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
-                    update_sendingtime(order_request)
+                    update_fixtime(order_request, Fix.Tags.SendingTime.Tag)
                     
                     if side == Fix.Tags.Side.Values.BUY:
                         order_request.Side.value = Fix.Tags.Side.Values.BUY
@@ -147,6 +168,46 @@ class SingleMarketMaking(RealTimeStrategy):
                 iv. The market data may be staled => Cancel all opened orders
             """
             
+            # Check the order status first
+            if len(self.ordsvr.strategy_open_orders[self]) > 0 and \
+               datetime.now() - self.last_status_inquiry_time > timedelta(seconds=5):
+                self.last_status_inquiry_time = datetime.now()
+                mass_order_status = Fix.Messages.OrderMassStatusRequest()
+                mass_order_status.MassStatusReqID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMSTA')
+                mass_order_status.Instrument.SecurityExchange.value = target_exchange
+                mass_order_status.Instrument.Symbol.value = target_instmt
+                self.ordsvr.request(self, mass_order_status)
+                
+                # TBD    
+                for key, open_order in self.ordsvr.strategy_open_orders[self].items():
+                    self.logger.info('test', json.dumps(fixmsg2dict(open_order), \
+                                                        default=json_serial, \
+                                                        indent=4))
+            
+            keys = list(self.ordsvr.strategy_open_orders[self].keys())
+            for key in keys:
+                open_order = self.ordsvr.strategy_open_orders[self][key]
+                if datetime.now() - open_order.TransactTime.value > timedelta(seconds=15):
+                    # Cancel the order
+                    order_request = Fix.Messages.OrderCancelRequest()
+                    order_request.Instrument.SecurityExchange.value = open_order.Instrument.SecurityExchange.value
+                    order_request.Instrument.Symbol.value = open_order.Instrument.Symbol.value
+                    order_request.Side.value = open_order.Side.value
+                    order_request.ClOrdID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMCNC')
+                    order_request.SecondaryClOrdID.value = open_order.SecondaryClOrdID.value
+                    order_request.OrderID.value = open_order.OrderID.value
+                    update_fixtime(order_request, Fix.Tags.SendingTime.Tag)     
+                    
+                    # Send out the request
+                    fix_response = self.ordsvr.request(self, order_request)
+                    if fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED and \
+                        fix_response.ExecType.value == Fix.Tags.ExecType.Values.CANCELED:
+                        del self.ordsvr.strategy_open_orders[self][key]
+                else:
+                    # Keep the order
+                    pass
+                
+            
     
     def _update_order_book(self):
         """
@@ -171,12 +232,9 @@ def get_args():
     Get input arguments
     """
     parser = argparse.ArgumentParser(description='Single market marking.')
-    parser.add_argument('-gatecoin_public', action='store', dest='gatecoin_public',
-                        help='Gatecoin public API key.',
+    parser.add_argument('-config', action='store', dest='config',
+                        help='Configuration file path',
                         default='')
-    parser.add_argument('-gatecoin_private', action='store', dest='gatecoin_private',
-                        help='Gatecoin private API key.',
-                        default='')                        
     return parser.parse_args()  
     
 
@@ -184,17 +242,26 @@ def main():
     # Get input arguments
     args = get_args()
     
+    # Set configuration
+    config = ConfigParser.ConfigParser()
+    config.read(args.config)
+    
     # Gateway initialization
     gatecoin_eig = ExchGatecoinEig(ConsoleLogger.static_logger,
-                                   args.gatecoin_public,
-                                   args.gatecoin_private)
+                                   config.get('Gatecoin', 'public'),
+                                   config.get('Gatecoin', 'private'))
     gatecoin_eis = ExchGatecoinEis(gatecoin_eig)
     
     # Database initialization
+    database_port = int(config.get('Database', 'Port'))
     request_db_client = RedisDatabaseClient()
-    request_db_client.connect(host='localhost', port=6379, db=0)
+    request_db_client.connect(host='localhost', 
+                              port=database_port, 
+                              db=int(config.get('Database', 'Request')))
     response_db_client = RedisDatabaseClient()
-    response_db_client.connect(host='localhost', port=6379, db=1)    
+    response_db_client.connect(host='localhost', 
+                              port=database_port, 
+                              db=int(config.get('Database', 'Response')))   
     
     # Order server initialization
     ordsvr = OrderServer(request_db_client, response_db_client, ConsoleLogger.static_logger)
@@ -204,7 +271,7 @@ def main():
     # Strategy initialization
     smm = SingleMarketMaking('SingleMarketMaking', ordsvr, ConsoleLogger.static_logger)
     market_data_feed = MarketDataFeed(ConsoleLogger.static_logger)
-    market_data_feed.connect(addr='tcp://127.0.0.1:6001')
+    market_data_feed.connect(addr=config.get('MarketFeed', 'Host'))
     smm.register_market_data_feed(market_data_feed)
     smm.monitor()
     

@@ -37,12 +37,12 @@ class MarketDataFeed:
         self.poller = zmq.Poller()
         self.poller.register(self.feed, zmq.POLLIN)
     
-    def get_snapshot(self):
+    def get_snapshot(self, timeout=100):
         """
         Get snapshot
         """
         # Poll the message
-        socks = dict(self.poller.poll(100))
+        socks = dict(self.poller.poll(timeout))
         if len(socks) > 0 and socks[self.feed] == zmq.POLLIN:
             data = self.feed.recv_pyobj()
         else:
@@ -98,4 +98,10 @@ class MarketDataFeed:
             return None
 
     
-    
+if __name__ == '__main__':
+    addr = 'tcp://104.199.207.212:8080'
+    mdf = MarketDataFeed(ConsoleLogger.static_logger)
+    mdf.connect(addr=addr)
+    while True:
+        ss = mdf.get_snapshot(5000)
+        print(ss)

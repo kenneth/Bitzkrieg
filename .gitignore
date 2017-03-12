@@ -8,3 +8,4 @@ q/*
 third-party/*
 dump.rdb
 archive/*
+production-config.ini

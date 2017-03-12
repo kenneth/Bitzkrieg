@@ -3,6 +3,7 @@ from bitz.logger import Logger
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.logger import ConsoleLogger
+from bitz.util import update_fixtime
 from datetime import datetime
 import argparse
 import json
@@ -35,20 +36,18 @@ class ExchGatecoinEis(object):
         :return True if the request is successful.
         """
         msgType = req.MsgType
-        fix_response = None
+        fix_responses = []
         err_msg = ""
         
         if msgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
             response = self.request_new_order_single(req)
             
+            fix_response = self.generate_execution_report()
             if self.eig.check_success(response):
-                fix_response = self.generate_execution_report()
                 fix_response.OrderID.value = response['clOrderId']
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.NEW
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
-                fix_response = [fix_response]
             else:
-                fix_response = self.generate_execution_report()
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
                 if 'responseStatus' in response and \
@@ -59,39 +58,66 @@ class ExchGatecoinEis(object):
                              response['responseStatus']['errorCode'])
                 else:
                     fix_response.Text.value = "Rejected by the exchange."
-                    
-                fix_response = [fix_response]
+            
+            # Add TransactTime
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag)
+            # Ready to send
+            fix_responses.append(fix_response)
+            
         elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREQUEST:
             response = self.request_order_cancel_request(req)
             
             if self.eig.check_success(response):
                 fix_response = self.generate_execution_report()
+                fix_response.ClOrdID.value = req.ClOrdID.value
                 fix_response.OrderID.value = req.OrderID.value
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.CANCELED
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.CANCELED
-                fix_response = [fix_response]
             else:
-                assert False, "Not yet implemented %s" % msgType
+                fix_response = Fix.Messages.OrderCancelReject()
+                fix_response.ClOrdID.value = req.ClOrdID.value
+                fix_response.OrderID.value = req.OrderID.value
+                fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
+                fix_response.CxlRejResponseTo.value = Fix.Tags.CxlRejResponseTo.Values.ORDER_CANCEL_REQUEST
+                fix_response.CxlRejReason.value = Fix.Tags.CxlRejReason.Values.OTHER
+                fix_response.Text.value = self.get_failed_msg(response)
+                
+            # Add TransactTime
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag)
+            # Ready to send
+            fix_responses.append(fix_response)
+            
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
             response = self.request_order_mass_status_request(req)
             
             if self.eig.check_success(response):
-                fix_response = self.parse_orders_get_result(response)
+                fix_responses = self.parse_orders_get_result(response)
             else:
-                assert False, "Not yet implemented %s" % msgType
+                err_msg = self.get_failed_msg(response)
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             response = self.request_positions(req)
             
             if self.eig.check_success(response):
                 fix_response = self.parse_balances_result(response)
-                fix_response = [fix_response]
+                fix_responses.append(fix_response)
             else:
                 assert False, "Not yet implemented %s" % msgType
         else:
             assert False, "MsgType (%s) has not yet been implemented." % msgType
-            
-        return fix_response, err_msg
         
+        return fix_responses, err_msg
+    
+    @classmethod
+    def get_failed_msg(cls, response):
+        err_msg = ''
+        if 'failed_code' in response:
+            err_msg += "(%d) " % response['failed_code']
+        
+        if 'failed_text' in response:
+            err_msg += "%s " % response['failed_text'] 
+        
+        return err_msg
+    
     def request_new_order_single(self, req):
         """
         Handle NewOrderSingle request
@@ -239,6 +265,7 @@ def main():
                         default='')                        
     parser.add_argument('-balance', action='store_true', help='Inquire account balance')
     parser.add_argument('-orders', action='store_true', help='Inquire account balance')
+    parser.add_argument('-cancel', action='store_true', help='Cancel all outstanding orders')
     args = parser.parse_args()
     
     eig = ExchGatecoinEig(ConsoleLogger.static_logger, args.public, args.private)
@@ -246,6 +273,7 @@ def main():
     logger = ConsoleLogger.static_logger
     
     if args.balance:
+        logger.info('main', "Request for positions...")
         req = Fix.Messages.RequestForPositions()
         fix_responses, err_msg = eis.request(req)
         logger.info('main', 'Number of messages = %d' % len(fix_responses))
@@ -258,6 +286,7 @@ def main():
         logger.info('main', ret)
         
     elif args.orders:
+        logger.info('main', "Order mass status request...")
         req = Fix.Messages.OrderMassStatusRequest()
         fix_responses, err_msg = eis.request(req)
         logger.info('main', 'Number of messages = %d' % len(fix_responses))
@@ -273,6 +302,11 @@ def main():
                 ("Leaves quantity = %.6f\n" % fix_response.LeavesQty.value) +
                 ("Order type = %s\n" % fix_response.OrdType.value)
                 )    
+    elif args.cancel:
+        logger.info('main', "Mass order cancellation...")
+        req = Fix.Messages.OrderCancelRequest()
+        req.OrderID.value = '0'
+        fix_responses, err_msg = eis.request(req)
     else:
         parser.print_help()
         sys.exit(1)
