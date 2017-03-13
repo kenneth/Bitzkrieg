@@ -108,7 +108,50 @@ class OrderServer:
                 (msg.PosReqID.value, msg.PosMaintRptID.value, msg.MsgType), fixmsg2dict(msg))   
         else:
             assert False, "Invalid MsgType %s" % msg.MsgType
+    
+    def allow_strategy_risk_exposure(self, source, msg):
+        """
+        Check from the strategy risk exposure if the order is allowed to be placed
+        """
+        self.assert_strategy(source)
+        if msg.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
+            exposure = msg.OrderQtyData.OrderQty.value
+            side = msg.Side.value
             
+            if side == Fix.Tags.Side.Values.BUY and \
+                self.strategy_risk_exposure[source]["open_bid_amt"] + exposure > \
+                self.strategy_risk_exposure[source]["max_bid_amt"]:
+                return False
+            elif side == Fix.Tags.Side.Values.SELL and \
+                self.strategy_risk_exposure[source]["open_ask_amt"] + exposure > \
+                self.strategy_risk_exposure[source]["max_ask_amt"]:
+                return False
+            else:
+                return True
+        else:
+            assert False, "MsgType (%s) is not supported yet." % msg.MsgType
+    
+    def update_strategy_risk_exposure(self, source, msg):
+        """
+        Update the strategy risk exposure
+        """
+        self.assert_strategy(source)
+        if msg.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
+            exposure = msg.OrderQtyData.OrderQty.value
+            side = msg.Side.value
+            execType = msg.ExecType.value
+            
+            if execType == Fix.Tags.ExecType.Values.NEW:
+                self.strategy_risk_exposure[source]["open_bid_amt"] += exposure if side == Fix.Tags.Side.Values.BUY else 0
+                self.strategy_risk_exposure[source]["open_ask_amt"] += exposure if side == Fix.Tags.Side.Values.SELL else 0
+            elif execType == Fix.Tags.ExecType.Values.CANCELED:
+                self.strategy_risk_exposure[source]["open_bid_amt"] -= exposure if side == Fix.Tags.Side.Values.BUY else 0
+                self.strategy_risk_exposure[source]["open_ask_amt"] -= exposure if side == Fix.Tags.Side.Values.SELL else 0
+            else:
+                assert False, "Not supported ExecType (%s)" % execType
+        else:
+            assert False, "MsgType (%s) is not supported yet." % msg.MsgType
+    
     def query_risk_exposure(self):
         """
         Query the risk exposure among all exchanges and strategies
@@ -133,14 +176,6 @@ class OrderServer:
             ##################################################
             self.assert_strategy(source)
                    
-            # Add risk level
-            if msg.Side.value == Fix.Tags.Side.Values.BUY:
-                self.strategy_risk_exposure[source]['open_bid_amt'] += msg.OrderQtyData.OrderQty.value
-            elif msg.Side.value == Fix.Tags.Side.Values.SELL:
-                self.strategy_risk_exposure[source]['open_ask_amt'] += msg.OrderQtyData.OrderQty.value
-            else:
-                assert False, "Invalid Side %s" % msg.Side.value
-            
             # Add latency trip
             update_fixtime(msg, Fix.Tags.HopSendingTime.Tag, "OrdSvrOut")
             
@@ -149,27 +184,53 @@ class OrderServer:
             
             # Store request into the database
             self.request_database.insert(msg.ClOrdID.value, fixmsg2dict(msg))
-            
-            # Send it to the exchange
-            gw_responses, error_msg = self.exchanges[exchange_name].request(msg)
-            for gw_response in gw_responses:
-                self.assert_msgtype(gw_response, Fix.Tags.MsgType.Values.EXECUTIONREPORT)
-                if gw_response.ExecType.value == Fix.Tags.ExecType.Values.NEW:
-                    ordsvr_response.ExecType.value = Fix.Tags.ExecType.Values.NEW
-                    ordsvr_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
-                    ordsvr_response.OrderID.value = gw_response.OrderID.value
-                    ordsvr_response.TransactTime.value = gw_response.TransactTime.value
-                    assert ordsvr_response.SecondaryClOrdID.value not in self.strategy_open_orders[source].keys(), \
-                           "Duplicated key (%s) in strategy_open_orders" % ordsvr_response.SecondaryClOrdID
-                    self.strategy_open_orders[source][ordsvr_response.SecondaryClOrdID.value] = ordsvr_response
-                elif gw_response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED:
-                    ordsvr_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
-                    ordsvr_response.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
-                    ordsvr_response.Text.value = gw_response.Text
-                    ordsvr_response.LeavesQty.value = 0
-                    ordsvr_response.TransactTime.value = gw_response.TransactTime.value
-                else:
-                    assert False, "Not implemented other ExecType %s" % gw_response.ExecType.value
+
+            # Risk check first
+            if self.allow_strategy_risk_exposure(source, msg):
+                # Send it to the exchange
+                gw_responses, error_msg = self.exchanges[exchange_name].request(msg)
+                for gw_response in gw_responses:
+                    self.assert_msgtype(gw_response, Fix.Tags.MsgType.Values.EXECUTIONREPORT)
+                    if gw_response.ExecType.value == Fix.Tags.ExecType.Values.NEW:
+                        # New order
+                        ordsvr_response.ExecType.value = Fix.Tags.ExecType.Values.NEW
+                        ordsvr_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
+                        # Update risk exposure
+                        self.update_strategy_risk_exposure(source, ordsvr_response)
+                        # Order ID
+                        ordsvr_response.OrderID.value = gw_response.OrderID.value
+                        # TransactTime
+                        ordsvr_response.TransactTime.value = gw_response.TransactTime.value
+                        # Update strategy open orders
+                        assert ordsvr_response.SecondaryClOrdID.value not in self.strategy_open_orders[source].keys(), \
+                               "Duplicated key (%s) in strategy_open_orders" % ordsvr_response.SecondaryClOrdID
+                        self.strategy_open_orders[source][ordsvr_response.SecondaryClOrdID.value] = ordsvr_response
+                    elif gw_response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED:
+                        # Reject order
+                        ordsvr_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
+                        ordsvr_response.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
+                        # Rejection Text
+                        ordsvr_response.Text.value = gw_response.Text
+                        # LeavesQty
+                        ordsvr_response.LeavesQty.value = 0
+                        # TransactTime
+                        ordsvr_response.TransactTime.value = gw_response.TransactTime.value
+                    else:
+                        assert False, "Not implemented other ExecType %s" % gw_response.ExecType.value
+            else:
+                # Reject order
+                ordsvr_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
+                ordsvr_response.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
+                # Rejection Text
+                curr_risk = self.strategy_risk_exposure[source]["open_bid_amt"] if msg.Side.value == Fix.Tags.Side.Values.BUY else\
+                            self.strategy_risk_exposure[source]["open_ask_amt"]
+                risk_limit = self.strategy_risk_exposure[source]["max_bid_amt"] if msg.Side.value == Fix.Tags.Side.Values.BUY else\
+                            self.strategy_risk_exposure[source]["max_ask_amt"]
+                            
+                ordsvr_response.Text.value = "Expected risk exposure (%.6f+%.6f) will exceed the risk limit (%.6f)" % \
+                        (curr_risk, msg.OrderQtyData.OrderQty.value, risk_limit)
+                # LeavesQty
+                ordsvr_response.LeavesQty.value = 0
             
             # Add latency trip
             update_fixtime(ordsvr_response, Fix.Tags.SendingTime.Tag)
@@ -204,14 +265,20 @@ class OrderServer:
                 if gw_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED and \
                    gw_response.ExecType.value == Fix.Tags.ExecType.Values.CANCELED:
                     # Order is canceled
-                    original_order.LeavesQty.value = 0
                     original_order.OrdStatus.value = Fix.Tags.OrdStatus.Values.CANCELED
                     original_order.ExecType.value = Fix.Tags.ExecType.Values.CANCELED
+                    # Update risk exposure
+                    self.update_strategy_risk_exposure(source, original_order)
+                    # LeavesQty
+                    original_order.LeavesQty.value = 0
                 else:
                     assert False, "Invalid OrdStatus(%s) and ExecType (%s)" % \
                     (gw_response.OrdStatus.value, gw_response.ExecType.value)
             elif gw_respose.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+                # Order is rejected
                 original_order.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
+                # Rejection text
+                original_order.Text.value = error_msg
                 
             # Add latency trip
             update_fixtime(original_order, Fix.Tags.HopSendingTime.Tag, "OrdSvrIn")                
