@@ -30,6 +30,8 @@ setup(
                                 'smm=bitz.single_market_making:main']
         },    
     install_requires=[
+            'pytest',
+            'lightmatchingengine', 
             'pyzmq',
             'redis',
             'PyJWT'

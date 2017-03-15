@@ -2,6 +2,7 @@
 from bitz.redis_database_client import RedisDatabaseClient
 from subprocess import Popen
 import unittest
+import time
 
 class TestRedisDatabaseClient(unittest.TestCase):
     server = None
@@ -10,6 +11,7 @@ class TestRedisDatabaseClient(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         server = Popen(["redis-server", "--port %d" % TestRedisDatabaseClient.server_port])
+        time.sleep(5)
 
     @classmethod
     def tearDownClass(cls):
