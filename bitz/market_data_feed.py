@@ -1,4 +1,4 @@
-#!/usr/bin/python3 
+#!/usr/bin/python3
 from bitz.logger import ConsoleLogger
 from bitz.market_data import L2Depth, Trade, Snapshot
 from qpython import qconnection, qtemporal
@@ -12,7 +12,7 @@ class MarketDataFeed:
     Market data feed
     """
     MAX_WARNING_COUNT = 10
-    
+
     def __init__(self, logger):
         """
         Constructor
@@ -24,7 +24,7 @@ class MarketDataFeed:
         self.feed = None
         self.warning_count = 0
         self.snapshots = {}
-    
+
     def connect(self, **kwargs):
         """
         Connect to the market data feed
@@ -36,7 +36,7 @@ class MarketDataFeed:
         self.feed.setsockopt_string(zmq.SUBSCRIBE, '')
         self.poller = zmq.Poller()
         self.poller.register(self.feed, zmq.POLLIN)
-    
+
     def get_snapshot(self, timeout=100):
         """
         Get snapshot
@@ -47,7 +47,7 @@ class MarketDataFeed:
             data = self.feed.recv_pyobj()
         else:
             return None
-        
+
         # Handle the polled message
         table_name = data['table']
         if table_name == 'exchanges_snapshot':
@@ -56,6 +56,7 @@ class MarketDataFeed:
             exchange = data['exchange']
             instmt = data['instmt']
             snapshot = self.snapshots.setdefault((exchange, instmt), Snapshot(exchange, instmt))
+            assert 'update_type' in data.keys(), "Invalid data (%s)" % data
             snapshot.update_type = data['update_type']
             if snapshot.update_type == Snapshot.UpdateType.ORDER_BOOK:
                 snapshot.order_book.b1 = data['b1']
@@ -77,27 +78,27 @@ class MarketDataFeed:
                 snapshot.order_book.aq2 = data['aq2']
                 snapshot.order_book.aq3 = data['aq3']
                 snapshot.order_book.aq4 = data['aq4']
-                snapshot.order_book.aq5 = data['aq5']      
+                snapshot.order_book.aq5 = data['aq5']
                 snapshot.order_book.date_time = datetime.strptime(data['order_date_time'],
                                                                   "%Y%m%d %H:%M:%S.%f")
-            elif snapshot.update_type == Snapshot.UpdateType.TRADES:                                                                  
+            elif snapshot.update_type == Snapshot.UpdateType.TRADES:
                 snapshot.last_trade.trade_price = data['trade_px']
                 snapshot.last_trade.trade_volume = data['trade_volume']
                 snapshot.last_trade.date_time = datetime.strptime(data['trades_date_time'],
-                                                                  "%Y%m%d %H:%M:%S.%f")                
-            
+                                                                  "%Y%m%d %H:%M:%S.%f")
+
             return snapshot
-            
+
         else:
             self.warning_count += 1
             if self.warning_count > MarketDataFeed.MAX_WARNING_COUNT:
                 self.logger.error(self.__class__.__name__, 'Warning:' +
                 'Other table name %s has been received.' % table_name)
                 self.warning_count = 0
-                
+
             return None
 
-    
+
 if __name__ == '__main__':
     addr = 'tcp://104.199.207.212:8080'
     mdf = MarketDataFeed(ConsoleLogger.static_logger)
