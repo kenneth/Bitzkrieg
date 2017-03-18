@@ -44,7 +44,7 @@ class MarketDataFeed:
         # Poll the message
         socks = dict(self.poller.poll(timeout))
         if len(socks) > 0 and socks[self.feed] == zmq.POLLIN:
-            data = self.feed.recv_pyobj()
+            data = self.feed.recv_json()
         else:
             return None
 
@@ -56,7 +56,10 @@ class MarketDataFeed:
             exchange = data['exchange']
             instmt = data['instmt']
             snapshot = self.snapshots.setdefault((exchange, instmt), Snapshot(exchange, instmt))
-            assert 'update_type' in data.keys(), "Invalid data (%s)" % data
+            if len(data.keys()) != 28:
+                self.logger.error(self.__class__.__name__, "Invalid data (%s)" % data)
+                return None
+                
             snapshot.update_type = data['update_type']
             if snapshot.update_type == Snapshot.UpdateType.ORDER_BOOK:
                 snapshot.order_book.b1 = data['b1']

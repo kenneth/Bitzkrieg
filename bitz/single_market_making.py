@@ -45,6 +45,7 @@ class SingleMarketMaking(RealTimeStrategy):
         self.referenced_instmts = [('Quoine', 'BTCUSD', 7.75, 7.80)]
         self.opened_orders = []
         self.last_status_inquiry_time = datetime.now()
+        self.exchange_query_available_time = datetime.now()
 
     def register_market_data_feed(self, market_data_feed):
         """
@@ -132,13 +133,15 @@ class SingleMarketMaking(RealTimeStrategy):
                        (self.ordsvr.strategy_risk_exposure[self]['open_bid_amt'] >= \
                        self.ordsvr.strategy_risk_exposure[self]['max_bid_amt'] or \
                        fair_bid_price >= 1e9 or \
-                       target_buy_margin < fair_bid_price * self.fixed_order_amt):
+                       target_buy_margin < fair_bid_price * self.fixed_order_amt or \
+                       datetime.now() < self.exchange_query_available_time):
                         continue
                     elif side == Fix.Tags.Side.Values.SELL and \
                        (self.ordsvr.strategy_risk_exposure[self]['open_ask_amt'] >= \
                        self.ordsvr.strategy_risk_exposure[self]['max_ask_amt'] or \
                        fair_ask_price <= 0 or \
-                       target_sell_margin < self.fixed_order_amt):
+                       target_sell_margin < self.fixed_order_amt or \
+                       datetime.now() < self.exchange_query_available_time):
                         continue
 
                     # Create an order
@@ -160,9 +163,15 @@ class SingleMarketMaking(RealTimeStrategy):
                     # Send out the request
                     fix_response = self.ordsvr.request(self, order_request)
 
-                    # Append opened orders
-                    if fix_response.OrdStatus == Fix.Tags.OrdStatus.Values.NEW:
+                    # Handle response
+                    if fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.NEW:
+                        # Append opened orders
                         self.opened_orders.append(fix_response)
+                    elif fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.REJECTED:
+                        if fix_response.OrdRejReason.value == 429:
+                            # Hit the 30 txn per 1 mins limit
+                            self.exchange_query_available_time = datetime.now() + timedelta(seconds=5)
+
 
             """
             If there is opened position, check if
@@ -203,6 +212,11 @@ class SingleMarketMaking(RealTimeStrategy):
                     if fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED and \
                         fix_response.ExecType.value == Fix.Tags.ExecType.Values.CANCELED:
                         del self.ordsvr.strategy_open_orders[self][key]
+                    elif fix_response.ExecType.value == Fix.Tags.ExecType.value.REJECTED and \
+                            fix_response.OrdRejReason.value == 429:
+                        # Hit 30 txns per 1 min limit
+                        self.exchange_query_available_time = datetime.now() + timedelta(seconds=5)
+
                 else:
                     # Keep the order
                     pass
