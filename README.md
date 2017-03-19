@@ -37,7 +37,39 @@ Note: Currently the beta version has not been put to PyPI.
 
 First, set up the configuration same as [config.ini](config.ini).
 
+Run the command
+
+```
+smm -config <your config file>
+```
+
 2. Gateway dependent
+
+For each gateway it supports the following functionalities without the order server.
+
+- Mass order cancel
+    
+    ```
+        <gateway> -cancel -public <api public key> -private <api private key>
+    ```
+    
+- Mass order status
+    
+    ```
+        <gateway> -orders -public <api public key> -private <api private key>
+    ```
+    
+- Balance
+    
+    ```
+        <gateway> -balance -public <api public key> -private <api private key>
+    ```
+
+## Gateway
+
+Currently the below gateways are supported:
+
+- Gatecoin
 
 ## Configuration
 
