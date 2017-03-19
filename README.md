@@ -71,6 +71,31 @@ Currently the below gateways are supported:
 
 - Gatecoin
 
+## Database
+
+Currently, it is supported to store the request and response messages into a [Redis](https://redis.io/) database. The requests and responses are stored into the same database but different indexes.
+
+The requests are stored with request ID (e.g. ClOrdID) as the key and the FIX message as the value.
+
+The responses are stored with execution ID (e.g. ExecID) as the key and the FIX message as the value.
+
+## Market Data Feed
+
+Currently, it is supported to receive the market data feed from [BitcoinExchangeFH](https://github.com/gavincyi/BitcoinExchangeFH). 
+
 ## Configuration
 
-TBD
+The configuration file contains the setup parameters of market data feed, database and gateways.
+
+| Section | Item | Description |
+| --- | --- | --- |
+|**Database**|Port|The port of the Redis database.|
+| |Request|The database index of the requests.|
+| |Response|The database index of the responses.|
+|**MarketFeed**|Host|The host of the market data feed, in format of "address:port".|
+|**Gatecoin**|public|Your public key provided by Gatecoin.|
+| |private|Your private key provided by Gatecoin.|
+
+## Contact
+
+If you have any inquires, please contact gavincyi at gmail dot com.
