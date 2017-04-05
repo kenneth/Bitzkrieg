@@ -1,30 +1,20 @@
 #!/usr/bin/python3  
+import redis
 from bitz.redis_database_client import RedisDatabaseClient
-from subprocess import Popen
+import mock
 import unittest
-import time
 
 class TestRedisDatabaseClient(unittest.TestCase):
-    server = None
-    server_port = 9999
     
-    @classmethod
-    def setUpClass(cls):
-        server = Popen(["redis-server", "--port %d" % TestRedisDatabaseClient.server_port])
-        time.sleep(5)
-
-    @classmethod
-    def tearDownClass(cls):
-        if TestRedisDatabaseClient.server is not None:
-            TestRedisDatabaseClient.server.terminate()
-    
-    def test_insert(self):
+    @mock.patch.object(redis.StrictRedis, 'set', autospec=True)
+    def test_insert(self, mock_strictredis):
         client = RedisDatabaseClient()
         client.connect(host='localhost', 
-                       port=TestRedisDatabaseClient.server_port,
+                       port=9999,
                        db=3)
-        self.assertTrue(client.insert('key1', 1))
-        self.assertTrue(client.insert('key2', 2))
+        client.insert('key1', 1)
+        mock_strictredis.assert_called_with(name='key1', value=1)
+        # self.assertTrue(client.insert('key2', 2))
         
 if __name__ == '__main__':
     unittest.main()

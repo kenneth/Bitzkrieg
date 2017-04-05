@@ -3,7 +3,7 @@ from bitz.exch_gatecoin_eis import ExchGatecoinEis
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.order_server import OrderServer
 from bitz.realtime_strategy import RealTimeStrategy
-from bitz.market_data_feed import MarketDataFeed
+from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
 from bitz.redis_database_client import RedisDatabaseClient
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import ConsoleLogger
@@ -286,7 +286,7 @@ def main():
     smm = SingleMarketMaking('SingleMarketMaking', ordsvr, ConsoleLogger.static_logger)
     signal.signal(signal.SIGINT, smm.handle_signal)
     signal.signal(signal.SIGTERM, smm.handle_signal)
-    market_data_feed = MarketDataFeed(ConsoleLogger.static_logger)
+    market_data_feed = BcfhMarketDataFeed(ConsoleLogger.static_logger)
     market_data_feed.connect(addr=config.get('MarketFeed', 'Host'))
     smm.register_market_data_feed(market_data_feed)
     smm.monitor()

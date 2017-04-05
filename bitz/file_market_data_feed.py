@@ -1,9 +1,13 @@
 #!/usr/bin/python3
-class MarketDataFeed:
+from bitz.market_data_feed import MarketDataFeed
+from bitz.market_data import L2Depth, Trade, Snapshot
+from datetime import datetime
+import zmq
+
+class FileMarketDataFeed(MarketDataFeed):
     """
     Market data feed
     """
-    MAX_WARNING_COUNT = 10
 
     def __init__(self, logger):
         """
@@ -12,19 +16,18 @@ class MarketDataFeed:
         :param logger                   Logger
         :param func_recv_data_feed      Function delegate for receiving data feed
         """
-        self.logger = logger
-        self.feed = None
-        self.snapshots = {}
+        MarketDataFeed.__init__(self, logger)
 
     def connect(self, **kwargs):
         """
         Connect to the market data feed
         """
-        raise NotImplementedError("Please Implement this method")
+        pass
 
     def get_snapshot(self, timeout=100):
         """
         Get snapshot
         """
         # Poll the message
-        raise NotImplementedError("Please Implement this method")
+        pass
+

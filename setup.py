@@ -34,6 +34,7 @@ setup(
             'lightmatchingengine', 
             'pyzmq',
             'redis',
-            'PyJWT'
+            'PyJWT',
+            'mock'
     ],
 )
