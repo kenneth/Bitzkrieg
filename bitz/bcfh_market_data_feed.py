@@ -41,9 +41,8 @@ class BcfhMarketDataFeed(MarketDataFeed):
         socks = dict(self.poller.poll(timeout))
         if len(socks) > 0 and socks[self.feed] == zmq.POLLIN:
             data = self.feed.recv_pyobj()
-            print(data)
         else:
-            return None
+            return Snapshot.UpdateType.NONE
 
         # Handle the polled message
         table_name = data['table']
@@ -55,8 +54,8 @@ class BcfhMarketDataFeed(MarketDataFeed):
             snapshot = self.snapshots.setdefault((exchange, instmt), Snapshot(exchange, instmt))
             if len(data.keys()) != 28:
                 self.logger.error(self.__class__.__name__, "Invalid data (%s)" % data)
-                return None
-                
+                return Snapshot.UpdateType.NONE
+
             snapshot.update_type = data['update_type']
             if snapshot.update_type == Snapshot.UpdateType.ORDER_BOOK:
                 snapshot.order_book.b1 = data['b1']
@@ -96,7 +95,14 @@ class BcfhMarketDataFeed(MarketDataFeed):
                 'Other table name %s has been received.' % table_name)
                 self.warning_count = 0
 
-            return None
+            return Snapshot.UpdateType.NONE
+
+    def now(self):
+        """
+        Get the current time
+        :return: Current datetime
+        """
+        return datetime.utcnow()
 
 
 if __name__ == '__main__':

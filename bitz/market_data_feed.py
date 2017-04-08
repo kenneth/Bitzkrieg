@@ -28,3 +28,12 @@ class MarketDataFeed:
         """
         # Poll the message
         raise NotImplementedError("Please Implement this method")
+
+    def now(self):
+        """
+        Get the current time
+        :return: Current datetime
+        """
+        raise NotImplementedError("Please Implement this method")
+
+
