@@ -89,6 +89,12 @@ class FileMarketDataFeed(MarketDataFeed):
                 # Return false if there is no next row
                 return False
 
+        def close(self):
+            """
+            Close the file handler
+            """
+            self.fhandler.close()
+
     @staticmethod
     def __update(snapshot, row):
         """
@@ -96,28 +102,28 @@ class FileMarketDataFeed(MarketDataFeed):
         :param snapshot:    Snapshot
         :param row:         Row
         """
-        snapshot.last_trade.trade_price = row[FileMarketDataFeed.FileFields.TradePx]
-        snapshot.last_trade.trade_volume = row[FileMarketDataFeed.FileFields.TradeVol]
-        snapshot.order_book.b1 = row[FileMarketDataFeed.FileFields.B1]
-        snapshot.order_book.b2 = row[FileMarketDataFeed.FileFields.B2]
-        snapshot.order_book.b3 = row[FileMarketDataFeed.FileFields.B3]
-        snapshot.order_book.b4 = row[FileMarketDataFeed.FileFields.B4]
-        snapshot.order_book.b5 = row[FileMarketDataFeed.FileFields.B5]
-        snapshot.order_book.a1 = row[FileMarketDataFeed.FileFields.A1]
-        snapshot.order_book.a2 = row[FileMarketDataFeed.FileFields.A2]
-        snapshot.order_book.a3 = row[FileMarketDataFeed.FileFields.A3]
-        snapshot.order_book.a4 = row[FileMarketDataFeed.FileFields.A4]
-        snapshot.order_book.a5 = row[FileMarketDataFeed.FileFields.A5]
-        snapshot.order_book.bq1 = row[FileMarketDataFeed.FileFields.BQ1]
-        snapshot.order_book.bq2 = row[FileMarketDataFeed.FileFields.BQ2]
-        snapshot.order_book.bq3 = row[FileMarketDataFeed.FileFields.BQ3]
-        snapshot.order_book.bq4 = row[FileMarketDataFeed.FileFields.BQ4]
-        snapshot.order_book.bq5 = row[FileMarketDataFeed.FileFields.BQ5]
-        snapshot.order_book.aq1 = row[FileMarketDataFeed.FileFields.AQ1]
-        snapshot.order_book.aq2 = row[FileMarketDataFeed.FileFields.AQ2]
-        snapshot.order_book.aq3 = row[FileMarketDataFeed.FileFields.AQ3]
-        snapshot.order_book.aq4 = row[FileMarketDataFeed.FileFields.AQ4]
-        snapshot.order_book.aq5 = row[FileMarketDataFeed.FileFields.AQ5]
+        snapshot.last_trade.trade_price = float(row[FileMarketDataFeed.FileFields.TradePx])
+        snapshot.last_trade.trade_volume = float(row[FileMarketDataFeed.FileFields.TradeVol])
+        snapshot.order_book.b1 = float(row[FileMarketDataFeed.FileFields.B1])
+        snapshot.order_book.b2 = float(row[FileMarketDataFeed.FileFields.B2])
+        snapshot.order_book.b3 = float(row[FileMarketDataFeed.FileFields.B3])
+        snapshot.order_book.b4 = float(row[FileMarketDataFeed.FileFields.B4])
+        snapshot.order_book.b5 = float(row[FileMarketDataFeed.FileFields.B5])
+        snapshot.order_book.a1 = float(row[FileMarketDataFeed.FileFields.A1])
+        snapshot.order_book.a2 = float(row[FileMarketDataFeed.FileFields.A2])
+        snapshot.order_book.a3 = float(row[FileMarketDataFeed.FileFields.A3])
+        snapshot.order_book.a4 = float(row[FileMarketDataFeed.FileFields.A4])
+        snapshot.order_book.a5 = float(row[FileMarketDataFeed.FileFields.A5])
+        snapshot.order_book.bq1 = float(row[FileMarketDataFeed.FileFields.BQ1])
+        snapshot.order_book.bq2 = float(row[FileMarketDataFeed.FileFields.BQ2])
+        snapshot.order_book.bq3 = float(row[FileMarketDataFeed.FileFields.BQ3])
+        snapshot.order_book.bq4 = float(row[FileMarketDataFeed.FileFields.BQ4])
+        snapshot.order_book.bq5 = float(row[FileMarketDataFeed.FileFields.BQ5])
+        snapshot.order_book.aq1 = float(row[FileMarketDataFeed.FileFields.AQ1])
+        snapshot.order_book.aq2 = float(row[FileMarketDataFeed.FileFields.AQ2])
+        snapshot.order_book.aq3 = float(row[FileMarketDataFeed.FileFields.AQ3])
+        snapshot.order_book.aq4 = float(row[FileMarketDataFeed.FileFields.AQ4])
+        snapshot.order_book.aq5 = float(row[FileMarketDataFeed.FileFields.AQ5])
         snapshot.last_trade.date_time = datetime.strptime(row[FileMarketDataFeed.FileFields.TradeUpdateTime], FileMarketDataFeed.FileFields.DateTimeFormat)
         snapshot.order_book.date_time = datetime.strptime(row[FileMarketDataFeed.FileFields.OrderUpdateTime], FileMarketDataFeed.FileFields.DateTimeFormat)
 
@@ -171,6 +177,13 @@ class FileMarketDataFeed(MarketDataFeed):
         # Update the current time as the last update time
         self.__now = self.__last_update_time()
         return True
+
+    def disconnect(self, **kwargs):
+        """
+        Disconnect to the market data feed
+        """
+        for file_handler in self.file_handlers:
+            file_handler.close()
 
     def get_snapshot(self, timeout=100):
         """
