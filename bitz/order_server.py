@@ -19,13 +19,14 @@ class OrderServer:
 
     All the communication is via FIX protocol.
     """
-    def __init__(self, request_database, response_database, logger):
+    def __init__(self, request_database, response_database, logger, data_feed):
         """
         Constructor
         """
         self.request_database = request_database
         self.response_database = response_database
         self.logger = logger
+        self.data_feed = data_feed
         self.exchanges = {}
         self.exchange_risk_exposure = {}
         self.strategy_risk_exposure = {}
@@ -46,9 +47,9 @@ class OrderServer:
         Assert exchange name
         """
         assert value == (exchange_name in self.exchanges.keys()), \
-               "Duplicated registeration of exchange %s" % exchange_name
+            "Duplicated registration of exchange %s" % exchange_name
         assert value == (exchange_name in self.exchange_risk_exposure.keys()), \
-               "Duplicated registeration of exchange %s" % exchange_name
+            "Duplicated registration of exchange %s" % exchange_name
 
     def assert_strategy(self, strategy, value=True):
         """

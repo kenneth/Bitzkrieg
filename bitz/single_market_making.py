@@ -4,6 +4,7 @@ from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.order_server import OrderServer
 from bitz.realtime_strategy import RealTimeStrategy
 from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
+from bitz.file_market_data_feed import FileMarketDataFeed
 from bitz.redis_database_client import RedisDatabaseClient
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import ConsoleLogger
@@ -11,7 +12,7 @@ from bitz.util import update_fixtime, fixmsg2dict
 from datetime import datetime, timedelta
 import signal
 import argparse
-import json
+import sys
 
 try:
     import ConfigParser
@@ -260,11 +261,22 @@ def main():
     config = ConfigParser.ConfigParser()
     config.read(args.config)
 
+    # Market data feed
+    market_data_feed_type = config.get('MarketFeed', 'Type')
+    if market_data_feed_type == 'file':
+        market_data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
+        market_data_feed.connect(files=eval(config.get('MarketFeed', 'Files')))
+    elif market_data_feed_type == 'bcfh':
+        market_data_feed = BcfhMarketDataFeed(ConsoleLogger.static_logger)
+        market_data_feed.connect(addr=config.get('MarketFeed', 'Host'))
+    else:
+        raise Exception("Cannot recognize the market data feed type %s" % market_data_feed_type)
+
     # Gateway initialization
-    gatecoin_eig = ExchGatecoinEig(ConsoleLogger.static_logger,
-                                   config.get('Gatecoin', 'public'),
-                                   config.get('Gatecoin', 'private'))
-    gatecoin_eis = ExchGatecoinEis(gatecoin_eig)
+    # gatecoin_eig = ExchGatecoinEig(ConsoleLogger.static_logger,
+    #                                config.get('Gatecoin', 'public'),
+    #                                config.get('Gatecoin', 'private'))
+    # gatecoin_eis = ExchGatecoinEis(gatecoin_eig)
 
     # Database initialization
     database_port = int(config.get('Database', 'Port'))
@@ -278,17 +290,14 @@ def main():
                               db=int(config.get('Database', 'Response')))
 
     # Order server initialization
-    ordsvr = OrderServer(request_db_client, response_db_client, ConsoleLogger.static_logger)
-    ordsvr.register_gateway('Gatecoin', gatecoin_eis)
-    ordsvr.query_risk_exposure()
+    ordsvr = OrderServer(request_db_client, response_db_client, ConsoleLogger.static_logger, market_data_feed)
+    # ordsvr.register_gateway('Gatecoin', gatecoin_eis)
+    # ordsvr.query_risk_exposure()
 
     # Strategy initialization
     smm = SingleMarketMaking('SingleMarketMaking', ordsvr, ConsoleLogger.static_logger)
     signal.signal(signal.SIGINT, smm.handle_signal)
     signal.signal(signal.SIGTERM, smm.handle_signal)
-    market_data_feed = BcfhMarketDataFeed(ConsoleLogger.static_logger)
-    market_data_feed.connect(addr=config.get('MarketFeed', 'Host'))
-    smm.register_market_data_feed(market_data_feed)
     smm.monitor()
 
 if __name__ == '__main__':
