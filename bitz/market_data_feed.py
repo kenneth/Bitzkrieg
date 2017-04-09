@@ -22,6 +22,12 @@ class MarketDataFeed:
         """
         raise NotImplementedError("Please Implement this method")
 
+    def disconnect(self, **kwargs):
+        """
+        Disconnect to the market data feed
+        """
+        raise NotImplementedError("Please Implement this method")
+
     def get_snapshot(self, timeout=100):
         """
         Get snapshot

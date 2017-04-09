@@ -126,6 +126,7 @@ class FileMarketDataFeed(MarketDataFeed):
         snapshot.order_book.aq5 = float(row[FileMarketDataFeed.FileFields.AQ5])
         snapshot.last_trade.date_time = datetime.strptime(row[FileMarketDataFeed.FileFields.TradeUpdateTime], FileMarketDataFeed.FileFields.DateTimeFormat)
         snapshot.order_book.date_time = datetime.strptime(row[FileMarketDataFeed.FileFields.OrderUpdateTime], FileMarketDataFeed.FileFields.DateTimeFormat)
+        snapshot.update_type = int(row[FileMarketDataFeed.FileFields.UpdateType])
 
     def __init__(self, logger):
         """
