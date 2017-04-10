@@ -9,6 +9,33 @@ import unittest
 
 
 class TExchBacktesting(unittest.TestCase):
+    def __create_new_single_order_best_bid(self, snapshot, side=Fix.Tags.Side.Values.BUY):
+        """
+        Create a NewSingleOrder
+        :param snapshot: Instrument snapshot
+        :return:
+        """
+        new_order_single = Fix.Messages.NewOrderSingle()
+        new_order_single.Instrument.Symbol.value = snapshot.instmt
+        new_order_single.Instrument.SecurityExchange.value = snapshot.exchange
+        if side == Fix.Tags.Side.Values.BUY:
+            new_order_single.Price.value = snapshot.order_book.b1
+            new_order_single.Side.value = Fix.Tags.Side.Values.BUY
+            new_order_single.TriggeringInstruction.TriggerPrice.value = snapshot.order_book.b1
+            new_order_single.TriggeringInstruction.TriggerNewQty.value = snapshot.order_book.bq1
+            new_order_single.ClOrdID.value = 'NewSingleBestBid%.6f' % snapshot.order_book.b1
+        else:
+            new_order_single.Price.value = snapshot.order_book.a1
+            new_order_single.Side.value = Fix.Tags.Side.Values.SELL
+            new_order_single.TriggeringInstruction.TriggerPrice.value = snapshot.order_book.a1
+            new_order_single.TriggeringInstruction.TriggerNewQty.value = snapshot.order_book.aq1
+            new_order_single.ClOrdID.value = 'NewSingleBestBid%.6f' % snapshot.order_book.a1
+
+        new_order_single.OrderQtyData.OrderQty.value = 1
+        new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
+        new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
+        return new_order_single
+
     def test_request_new_ack(self):
         # Initialize a file market data feed
         test_files = ['bitz\\test\\exch_quoine_btcusd_snapshot_20170407.csv']
@@ -21,16 +48,7 @@ class TExchBacktesting(unittest.TestCase):
         exch = ExchBacktesting('quoine', market_data_feed, exch_snapshot)
 
         # Initialize the NewOrderSingle
-        new_order_single = Fix.Messages.NewOrderSingle()
-        new_order_single.Instrument.Symbol.value = 'btcusd'
-        new_order_single.Instrument.SecurityExchange.value = 'quoine'
-        new_order_single.Price.value = exch_snapshot.order_book.b1
-        new_order_single.OrderQtyData.OrderQty.value = 1
-        new_order_single.Side.value = Fix.Tags.Side.Values.BUY
-        new_order_single.ClOrdID.value = 'TestRequestNewAck1'
-        new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
-        new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
-
+        new_order_single = self.__create_new_single_order_best_bid(exch_snapshot)
 
         # Send the request
         responses, error = exch.request(new_order_single)

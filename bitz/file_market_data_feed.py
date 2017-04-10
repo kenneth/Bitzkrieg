@@ -191,7 +191,7 @@ class FileMarketDataFeed(MarketDataFeed):
         Get snapshot
         """
         # Poll the message
-        if self.__now + timedelta(microseconds=timeout) < self.__next_update_time()[1]:
+        if timeout > 0 and self.__now + timedelta(microseconds=timeout) < self.__next_update_time()[1]:
             self.__now = self.__now + timedelta(microseconds=timeout)
             return Snapshot.UpdateType.NONE
         else:
