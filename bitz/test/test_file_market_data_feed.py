@@ -4,11 +4,12 @@ from bitz.logger import ConsoleLogger
 from bitz.market_data import Snapshot, L2Depth, Trade
 from datetime import datetime
 import unittest
+import os
 
 
 class TFileMarketDataFeed(unittest.TestCase):
     def test_connect_single_file(self):
-        test_files = ['bitz\\test\\exch_quoine_btcusd_snapshot_20170407.csv']
+        test_files = [os.path.join('bitz', 'test', 'exch_quoine_btcusd_snapshot_20170407.csv')]
         data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
 
         # Connect
@@ -45,8 +46,8 @@ class TFileMarketDataFeed(unittest.TestCase):
         data_feed.disconnect()
 
     def test_connect_multiple_files(self):
-        test_files = ['bitz\\test\\exch_quoine_btcusd_snapshot_20170407.csv',
-                      'bitz\\test\\exch_gatecoin_btchkd_snapshot_20170407.csv']
+        test_files = [os.path.join('bitz', 'test', 'exch_quoine_btcusd_snapshot_20170407.csv'),
+                      os.path.join('bitz', 'test', 'exch_gatecoin_btchkd_snapshot_20170407.csv')]
         data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
 
         # Connect
