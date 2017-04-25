@@ -104,6 +104,13 @@ class BcfhMarketDataFeed(MarketDataFeed):
         """
         return datetime.utcnow()
 
+    def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the current time in string
+        :param format: Time format
+        :return: Current datetime in string
+        """
+        raise datetime.utcnow()
 
 if __name__ == '__main__':
     addr = 'tcp://103.253.147.49:6001'

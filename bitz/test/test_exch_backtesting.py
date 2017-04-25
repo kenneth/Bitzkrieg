@@ -5,6 +5,7 @@ from bitz.exch_backtesting import ExchBacktesting
 from bitz.logger import ConsoleLogger
 from bitz.market_data import Snapshot, L2Depth, Trade
 from datetime import datetime
+from uuid import uuid4 as uuid
 import unittest
 import os
 
@@ -41,7 +42,7 @@ class TExchBacktesting(unittest.TestCase):
         new_order_single.Price.value = price
         new_order_single.TriggeringInstruction.TriggerPrice.value = price
         new_order_single.Side.value = side
-        new_order_single.ClOrdID.value = 'NewSingle%.6f' % price
+        new_order_single.ClOrdID.value = uuid()
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
@@ -185,7 +186,7 @@ class TExchBacktesting(unittest.TestCase):
         order_cancel_request = Fix.Messages.OrderCancelRequest()
         order_cancel_request.Instrument.Symbol.value = new_order_single.Instrument.Symbol.value
         order_cancel_request.Instrument.SecurityExchange.value = new_order_single.Instrument.SecurityExchange.value
-        order_cancel_request.ClOrdID.value = 'TestRequestNewAck2'
+        order_cancel_request.ClOrdID.value = uuid()
         order_cancel_request.OrderID.value = ack_response.OrderID.value
         order_cancel_request.Side.value = new_order_single.Side.value
 
@@ -352,16 +353,16 @@ class TExchBacktesting(unittest.TestCase):
         positions = responses[0]
         self.assertEqual(6, len(positions.PositionAmountData.groups))
         self.assertEqual(positions.PositionAmountData.groups[0].PositionCurrency.value, "USD")
-        self.assertEqual(positions.PositionAmountData.groups[0].PosAmt.value, 1000)
+        self.assertEqual(positions.PositionAmountData.groups[0].PosAmt.value, 2000)
         self.assertEqual(positions.PositionAmountData.groups[0].PosAmtType.value, Fix.Tags.PosAmtType.Values.CASH_AMOUNT)
         self.assertEqual(positions.PositionAmountData.groups[1].PositionCurrency.value, "USD")
-        self.assertEqual(positions.PositionAmountData.groups[1].PosAmt.value, 1000)
+        self.assertEqual(positions.PositionAmountData.groups[1].PosAmt.value, 2000)
         self.assertEqual(positions.PositionAmountData.groups[1].PosAmtType.value, Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT)        
         self.assertEqual(positions.PositionAmountData.groups[2].PositionCurrency.value, "HKD")
-        self.assertEqual(positions.PositionAmountData.groups[2].PosAmt.value, 10000)
+        self.assertEqual(positions.PositionAmountData.groups[2].PosAmt.value, 100000)
         self.assertEqual(positions.PositionAmountData.groups[2].PosAmtType.value, Fix.Tags.PosAmtType.Values.CASH_AMOUNT)
         self.assertEqual(positions.PositionAmountData.groups[3].PositionCurrency.value, "HKD")
-        self.assertEqual(positions.PositionAmountData.groups[3].PosAmt.value, 10000)
+        self.assertEqual(positions.PositionAmountData.groups[3].PosAmt.value, 100000)
         self.assertEqual(positions.PositionAmountData.groups[3].PosAmtType.value, Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT)   
         self.assertEqual(positions.PositionAmountData.groups[4].PositionCurrency.value, "BTC")
         self.assertEqual(positions.PositionAmountData.groups[4].PosAmt.value, 10)

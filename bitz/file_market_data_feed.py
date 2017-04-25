@@ -212,6 +212,14 @@ class FileMarketDataFeed(MarketDataFeed):
         """
         return self.__now
 
+    def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the current time in string
+        :param format: Time format
+        :return: Current datetime in string
+        """
+        return self.__now.strftime(format)
+
     def __last_update_time(self):
         """
         Get the last update time of all instruments

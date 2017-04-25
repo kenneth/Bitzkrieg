@@ -2,6 +2,7 @@
 from bitz.risk_manager import RiskManager
 from bitz.logger import ConsoleLogger
 from bitz.FIX50SP2 import FIX50SP2 as Fix
+from uuid import uuid4 as uuid
 import unittest
 import os
 
@@ -54,7 +55,7 @@ class TRiskManager(unittest.TestCase):
         new_order_single.Price.value = TRiskManager.price
         new_order_single.TriggeringInstruction.TriggerPrice.value = TRiskManager.price
         new_order_single.Side.value = side
-        new_order_single.ClOrdID.value = 'NewSingle%.6f' % TRiskManager.price
+        new_order_single.ClOrdID.value = uuid()
         new_order_single.OrderQtyData.OrderQty.value = TRiskManager.qty
         new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
@@ -73,7 +74,7 @@ class TRiskManager(unittest.TestCase):
         order_reject.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_reject.Price.value = TRiskManager.price
         order_reject.Side.value = side
-        order_reject.ClOrdID.value = 'NewSingle%.6f' % TRiskManager.price
+        order_reject.ClOrdID.value = uuid()
         order_reject.OrderQtyData.OrderQty.value = TRiskManager.qty
         order_reject.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         order_reject.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
@@ -94,7 +95,7 @@ class TRiskManager(unittest.TestCase):
         order_ack.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_ack.Price.value = TRiskManager.price
         order_ack.Side.value = side
-        order_ack.ClOrdID.value = 'NewSingle%.6f' % TRiskManager.price
+        order_ack.ClOrdID.value = uuid()
         order_ack.OrderQtyData.OrderQty.value = TRiskManager.qty
         order_ack.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         order_ack.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
@@ -116,7 +117,7 @@ class TRiskManager(unittest.TestCase):
         order_cancel_request.Instrument.Symbol.value = TRiskManager.instmt
         order_cancel_request.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_cancel_request.Side.value = side
-        order_cancel_request.ClOrdID.value = 'OrderCancelRequest%.6f' % TRiskManager.price
+        order_cancel_request.ClOrdID.value = uuid()
 
         return order_cancel_request
 

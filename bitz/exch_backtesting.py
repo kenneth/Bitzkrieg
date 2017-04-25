@@ -211,8 +211,8 @@ class ExchBacktesting(object):
         fix_message.ClearingBusinessDate.value = self.__market_data_feed.now().strftime("%Y%m%d")
         
         for currency, total_balance, available_balance in \
-            [('USD', 1000, 1000),\
-             ('HKD', 10000, 10000), \
+            [('USD', 2000, 2000),
+             ('HKD', 100000, 100000),
              ('BTC', 10, 10)]:
             # Total
             positionAmountData = Fix.Components.PositionAmountData.NoPosAmt()

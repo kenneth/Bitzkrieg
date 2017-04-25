@@ -42,4 +42,11 @@ class MarketDataFeed:
         """
         raise NotImplementedError("Please Implement this method")
 
+    def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the current time in string
+        :param format: Time format
+        :return: Current datetime in string
+        """
+        raise NotImplementedError("Please Implement this method")
 
