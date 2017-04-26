@@ -74,7 +74,7 @@ class ExchBacktesting(object):
                 raise NotImplementedError("Cancel rejection")
             elif self.__open_positions[req.OrderID.value][-1].LeavesQty.value == 0:
                 # Reject completed order
-                raise NotImplementedError("Cancel rejection")
+                fix_response = self.__prepare_exectype_cancelReject(req)
             else:
                 fix_response = self.__prepare_exectype_canceled(req)
             # else:
@@ -203,6 +203,23 @@ class ExchBacktesting(object):
         response.LastQty.value = open_position[-1].LastQty.value
         response.CumQty.value = open_position[-1].CumQty.value
         response.LastPx.value = open_position[-1].LastPx.value
+        return response
+
+    def __prepare_exectype_cancelReject(self, req):
+        """
+        Prepare order cancel reject
+        :param req: Order request
+        :return: Order cancel reject
+        """
+        assert req.OrderID.value in self.__open_positions.keys()
+        open_position = self.__open_positions[req.OrderID.value]
+        response = Fix.Messages.OrderCancelReject()
+        response.ClOrdID.value = req.ClOrdID.value
+        response.OrderID.value = req.OrderID.value
+        response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
+        response.CxlRejResponseTo.value = Fix.Tags.CxlRejResponseTo.Values.ORDER_CANCEL_REQUEST
+        response.Text.value = 'Cancel rejected by exchange'
+        response.CxlRejReason.value = Fix.Tags.CxlRejReason.Values.OTHER
         return response
 
     def __prepare_position_report(self, req):
