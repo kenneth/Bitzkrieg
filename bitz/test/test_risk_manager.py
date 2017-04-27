@@ -1,6 +1,8 @@
 #!/bin/python
 from bitz.risk_manager import RiskManager
 from bitz.logger import ConsoleLogger
+from bitz.realtime_strategy import RealTimeStrategy
+from bitz.instrument import Instrument
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from uuid import uuid4 as uuid
 import unittest
@@ -8,7 +10,7 @@ import os
 
 class TRiskManager(unittest.TestCase):
     exchange_name = 'quoine'
-    instmt = 'btcusd'
+    instmt_name = 'btcusd'
     price = 1200
     qty = 1.5
 
@@ -19,7 +21,7 @@ class TRiskManager(unittest.TestCase):
         :return: Position report message
         """
         message = Fix.Messages.PositionReport()
-        message.Instrument.Symbol = TRiskManager.instmt
+        message.Instrument.Symbol = TRiskManager.instmt_name
         message.Instrument.SecurityExchange = TRiskManager.exchange_name
 
         for currency, total_balance, available_balance in \
@@ -50,7 +52,7 @@ class TRiskManager(unittest.TestCase):
         """
         new_order_single = Fix.Messages.NewOrderSingle()
         side = Fix.Tags.Side.Values.BUY
-        new_order_single.Instrument.Symbol.value = TRiskManager.instmt
+        new_order_single.Instrument.Symbol.value = TRiskManager.instmt_name
         new_order_single.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         new_order_single.Price.value = TRiskManager.price
         new_order_single.TriggeringInstruction.TriggerPrice.value = TRiskManager.price
@@ -70,7 +72,7 @@ class TRiskManager(unittest.TestCase):
         """
         order_reject = Fix.Messages.ExecutionReport()
         side = Fix.Tags.Side.Values.BUY
-        order_reject.Instrument.Symbol.value = TRiskManager.instmt
+        order_reject.Instrument.Symbol.value = TRiskManager.instmt_name
         order_reject.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_reject.Price.value = TRiskManager.price
         order_reject.Side.value = side
@@ -91,7 +93,7 @@ class TRiskManager(unittest.TestCase):
         """
         order_ack = Fix.Messages.ExecutionReport()
         side = Fix.Tags.Side.Values.BUY
-        order_ack.Instrument.Symbol.value = TRiskManager.instmt
+        order_ack.Instrument.Symbol.value = TRiskManager.instmt_name
         order_ack.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_ack.Price.value = TRiskManager.price
         order_ack.Side.value = side
@@ -114,7 +116,7 @@ class TRiskManager(unittest.TestCase):
         """
         order_cancel_request = Fix.Messages.OrderCancelRequest()
         side = Fix.Tags.Side.Values.BUY
-        order_cancel_request.Instrument.Symbol.value = TRiskManager.instmt
+        order_cancel_request.Instrument.Symbol.value = TRiskManager.instmt_name
         order_cancel_request.Instrument.SecurityExchange.value = TRiskManager.exchange_name
         order_cancel_request.Side.value = side
         order_cancel_request.ClOrdID.value = uuid()
@@ -300,3 +302,20 @@ class TRiskManager(unittest.TestCase):
         self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').available_balance, 10000)
         self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1 + self.qty * 0.25)
         self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1 + self.qty * 0.25)
+
+    def test_risk_check_buy_pass(self):
+        """
+        Test risk check on buy side
+        """
+        risk_manager = RiskManager()
+        strategy = RealTimeStrategy('TStrategy', None, None, 2000)
+        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
+        message = self.__create_position_report()
+        exchange_risk = risk_manager.register_exchange(self.exchange_name)
+        strategy_risk = risk_manager.register_strategy(strategy, instmt)
+        risk_manager.update_risk_exposure_by_message(message, exchange_risk)
+
+        # Risk check
+        new_order_single = self.__create_new_order_single()
+        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
+

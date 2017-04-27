@@ -10,3 +10,4 @@ dump.rdb
 archive/*
 production-config.ini
 .idea/*
+production/*
