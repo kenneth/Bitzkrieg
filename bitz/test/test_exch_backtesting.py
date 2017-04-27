@@ -156,6 +156,18 @@ class TExchBacktesting(unittest.TestCase):
         self.assertEqual(response.LastPx.value, response.Price.value)
         self.assertEqual(response.LeavesQty.value, leaves_qty)        
 
+    def __assert_execution_report_exectype_cancelReject(self, order_cancel_request, response):
+        """
+        Assert OrderCancelReject Msg
+        :param order_cancel_request: OrderCancelRequest
+        :param response: The order cancel reject response
+        :return: 
+        """
+        self.assertEqual(Fix.Tags.OrdStatus.Values.REJECTED, response.OrdStatus.value)
+        self.assertEqual(Fix.Tags.CxlRejResponseTo.Values.ORDER_CANCEL_REQUEST, response.CxlRejResponseTo.value)
+        self.assertEqual(order_cancel_request.OrderID.value, response.OrderID.value)
+        self.assertEqual(order_cancel_request.ClOrdID.value, response.ClOrdID.value)
+
     def test_request_new_ack(self):
         """
         Test the order is placed and acknowledged. Then the order is cancelled without any fills
@@ -223,33 +235,6 @@ class TExchBacktesting(unittest.TestCase):
         exch.snapshot_updated(snapshot)
         last_status = exch.get_latest_status(ack_response.OrderID.value)
         self.__assert_execution_report_exectype_trade(ack_response, last_status, ack_response.OrderQtyData.OrderQty.value, 0)
-
-    def test_fully_filled_by_trade_update(self):
-        """
-        Test the order is placed and then filled due to trade update.
-        """
-        # Initialization
-        market_data_feed, exch_snapshot, exch = self.__initialise_exchange()
-
-        # Initialize the NewOrderSingle
-        new_order_single = self.__create_new_single_order_at_best(exch_snapshot)
-
-        # Send the request
-        ack_responses, error = exch.request(new_order_single)
-        self.assertEqual(error, '')
-        self.assertEqual(1, len(ack_responses))
-        ack_response = ack_responses[0]
-        self.__assert_execution_report_exectype_new(new_order_single, ack_response)        
-
-        for i in range(0, 5):
-            snapshot = market_data_feed.get_snapshot(timeout=0)
-            exch.snapshot_updated(snapshot)
-        
-        # Filled at the sixth update
-        snapshot = market_data_feed.get_snapshot(timeout=0)
-        exch.snapshot_updated(snapshot)
-        last_status = exch.get_latest_status(ack_response.OrderID.value)
-        self.__assert_execution_report_exectype_trade(ack_response, last_status, ack_response.OrderQtyData.OrderQty.value, 0)            
 
     def test_fully_filled_by_price_update(self):
         """
@@ -369,7 +354,49 @@ class TExchBacktesting(unittest.TestCase):
         self.assertEqual(positions.PositionAmountData.groups[4].PosAmtType.value, Fix.Tags.PosAmtType.Values.CASH_AMOUNT)
         self.assertEqual(positions.PositionAmountData.groups[5].PositionCurrency.value, "BTC")
         self.assertEqual(positions.PositionAmountData.groups[5].PosAmt.value, 10)
-        self.assertEqual(positions.PositionAmountData.groups[5].PosAmtType.value, Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT)           
-        
+        self.assertEqual(positions.PositionAmountData.groups[5].PosAmtType.value, Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT)
+
+    def test_cancel_rejected_after_fully_fill(self):
+        """
+        Test  order cancel after fully fill is rejected as too late
+        """
+        # Initialization
+        market_data_feed, exch_snapshot, exch = self.__initialise_exchange()
+
+        # Initialize the NewOrderSingle
+        new_order_single = self.__create_new_single_order_at_best(exch_snapshot)
+
+        # Send the request
+        ack_responses, error = exch.request(new_order_single)
+        self.assertEqual(error, '')
+        self.assertEqual(1, len(ack_responses))
+        ack_response = ack_responses[0]
+        self.__assert_execution_report_exectype_new(new_order_single, ack_response)
+
+        for i in range(0, 5):
+            snapshot = market_data_feed.get_snapshot(timeout=0)
+            exch.snapshot_updated(snapshot)
+
+        # Filled at the sixth update
+        snapshot = market_data_feed.get_snapshot(timeout=0)
+        exch.snapshot_updated(snapshot)
+        last_status = exch.get_latest_status(ack_response.OrderID.value)
+        self.__assert_execution_report_exectype_trade(ack_response, last_status,
+                                                      ack_response.OrderQtyData.OrderQty.value, 0)
+
+        order_cancel_request = Fix.Messages.OrderCancelRequest()
+        order_cancel_request.Instrument.Symbol.value = new_order_single.Instrument.Symbol.value
+        order_cancel_request.Instrument.SecurityExchange.value = new_order_single.Instrument.SecurityExchange.value
+        order_cancel_request.ClOrdID.value = uuid()
+        order_cancel_request.OrderID.value = ack_response.OrderID.value
+        order_cancel_request.Side.value = new_order_single.Side.value
+
+        # Send (late) cancel request, should be rejected
+        cancel_responses, error = exch.request(order_cancel_request)
+        self.assertEqual(1, len(cancel_responses))
+        self.assertEqual(error, '')
+        cancel_response = cancel_responses[0]
+        self.__assert_execution_report_exectype_cancelReject(order_cancel_request, cancel_response)
+
 if __name__ == '__main__':
     unittest.main()
