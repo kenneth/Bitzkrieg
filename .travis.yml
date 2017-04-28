@@ -8,3 +8,6 @@ install:
 
 script: 
   - pytest
+
+notifications:
+  slack: bitcoinalgoteam:xYzxC2YLbdw4ZlLXK6aYVGcQ
