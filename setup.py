@@ -35,6 +35,7 @@ setup(
             'pyzmq',
             'redis',
             'PyJWT',
-            'mock'
+            'mock',
+            'requests'
     ],
 )
