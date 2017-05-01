@@ -176,8 +176,24 @@ class RiskManager(object):
                     risklevels[fiat_currency].available_balance += price * qty
                     risklevels[fiat_currency].balance += price * qty
                     risklevels[digital_currency].balance -= qty
-                else:
-                    raise NotImplementedError("Side has not yet been implemented." % side)
+            elif execType == Fix.Tags.ExecType.Values.ORDER_STATUS:
+                if message.LeavesQty.value == 0:
+                    side = message.Side.value
+                    price = message.AvgPx.value
+                    qty = message.CumQty.value
+                    unfilled_qty = message.OrderQtyData.OrderQty.value - message.CumQty.value
+
+                    # Update the balance when the order is completed
+                    if side == Fix.Tags.Side.Values.BUY:
+                        risklevels[fiat_currency].balance -= price * qty
+                        risklevels[fiat_currency].available_balance += message.Price.value * unfilled_qty
+                        risklevels[digital_currency].available_balance += qty
+                        risklevels[digital_currency].balance += qty
+                    elif side == Fix.Tags.Side.Values.SELL:
+                        risklevels[fiat_currency].available_balance += price * qty
+                        risklevels[fiat_currency].balance += price * qty
+                        risklevels[digital_currency].balance -= qty
+                        risklevels[digital_currency].available_balance += unfilled_qty
             elif execType in [Fix.Tags.ExecType.Values.CANCELED,
                               Fix.Tags.ExecType.Values.EXPIRED,
                               Fix.Tags.ExecType.Values.DONE_FOR_DAY,

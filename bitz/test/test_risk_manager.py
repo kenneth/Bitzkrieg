@@ -303,6 +303,100 @@ class TRiskManager(unittest.TestCase):
         self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1 + self.qty * 0.25)
         self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1 + self.qty * 0.25)
 
+    def test_order_status_filled(self):
+        """
+        Test order status when the order is filled
+        """
+        risk_manager = RiskManager()
+        message = self.__create_position_report()
+        exchange_risk = risk_manager.register_exchange(self.exchange_name)
+        risk_manager.update_risk_exposure_by_message(message, exchange_risk)
+
+        # Send order
+        new_order_single = self.__create_new_order_single()
+        risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
+        # Order ack
+        order_ack = self.__create_order_ack()
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        # Partial filled
+        order_ack.OrdStatus.value = Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
+        order_ack.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+        order_ack.AvgPx.value = order_ack.Price.value
+        order_ack.LastPx.value = order_ack.Price.value
+        order_ack.LastQty.value = order_ack.OrderQtyData.OrderQty.value * 0.25
+        order_ack.CumQty.value = order_ack.LastQty.value
+        order_ack.LeavesQty.value = order_ack.OrderQtyData.OrderQty.value * 0.75
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').balance, 2000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').available_balance, 2000 - self.price * self.qty)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').available_balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1)
+        # Fully filled
+        order_ack.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
+        order_ack.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+        order_ack.AvgPx.value = order_ack.Price.value
+        order_ack.LastPx.value = order_ack.Price.value
+        order_ack.LastQty.value = order_ack.OrderQtyData.OrderQty.value * 0.75
+        order_ack.CumQty.value = order_ack.OrderQtyData.OrderQty.value
+        order_ack.LeavesQty.value = 0
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').balance, 2000 - (self.price * self.qty))
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').available_balance, 2000 - self.price * self.qty)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').available_balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1 + self.qty)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1 + self.qty)
+
+    def test_order_status_partially_filled(self):
+        """
+        Test order status when the order is filled
+        """
+        risk_manager = RiskManager()
+        message = self.__create_position_report()
+        exchange_risk = risk_manager.register_exchange(self.exchange_name)
+        risk_manager.update_risk_exposure_by_message(message, exchange_risk)
+
+        # Send order
+        new_order_single = self.__create_new_order_single()
+        risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
+        # Order ack
+        order_ack = self.__create_order_ack()
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        # Partial filled
+        order_ack.OrdStatus.value = Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
+        order_ack.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+        order_ack.AvgPx.value = order_ack.Price.value
+        order_ack.LastPx.value = order_ack.Price.value
+        order_ack.LastQty.value = order_ack.OrderQtyData.OrderQty.value * 0.25
+        order_ack.CumQty.value = order_ack.LastQty.value
+        order_ack.LeavesQty.value = order_ack.OrderQtyData.OrderQty.value * 0.75
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').balance, 2000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').available_balance, 2000 - self.price * self.qty)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').available_balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1)
+        # Fully filled
+        order_ack.OrdStatus.value = Fix.Tags.OrdStatus.Values.CANCELED
+        order_ack.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+        order_ack.AvgPx.value = order_ack.Price.value
+        order_ack.LastPx.value = order_ack.Price.value
+        order_ack.LastQty.value = order_ack.OrderQtyData.OrderQty.value * 0.25
+        order_ack.CumQty.value = order_ack.OrderQtyData.OrderQty.value * 0.25
+        order_ack.LeavesQty.value = 0
+        risk_manager.update_risk_exposure_by_message(order_ack, exchange_risk)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').balance, 2000 - (self.price * self.qty * 0.25))
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'USD').available_balance, 2000 - (self.price * self.qty * 0.25))
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'HKD').available_balance, 10000)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').balance, 1 + self.qty * 0.25)
+        self.assertEqual(risk_manager.get_exchange_balance(self.exchange_name, 'BTC').available_balance, 1 + self.qty * 0.25)
+
     def test_risk_check_buy_pass(self):
         """
         Test risk check on buy side
