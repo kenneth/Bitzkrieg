@@ -229,7 +229,8 @@ class RiskManager(object):
                                  Fix.Tags.MsgType.Values.ORDERCANCELREQUEST,
                                  Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS,
                                  Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST,
-                                 Fix.Tags.MsgType.Values.ORDERMASSCANCELREQUEST]:
+                                 Fix.Tags.MsgType.Values.ORDERMASSCANCELREQUEST,
+                                 Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST]:
             # Ignore message
             pass
         else:
