@@ -6,6 +6,8 @@ from bitz.realtime_database import AbstractRealtimeDatabase
 from bitz.risk_manager import RiskManager
 from bitz.market_data_feed import MarketDataFeed
 from bitz.util import update_fixtime, fixmsg2dict
+from bitz.market_data import Snapshot
+from bitz.realtime_strategy import RealTimeStrategy
 from datetime import datetime
 from typing import Union, List, Tuple
 from uuid import uuid4 as uuid
@@ -55,7 +57,26 @@ class OrderServer:
         return self.market_data_feed.now()
 
     def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the server current time in string
+        :return: Current datetime in string.
+        """
         return self.market_data_feed.now_string(format)
+
+    def get_latest_snapshot(self, timeout=100) -> Snapshot:
+        """
+        Get market data feed snapshot
+        """
+        return self.market_data_feed.get_snapshot(timeout)
+
+    def get_exchange_snapshot(self, exchange, instmt_name) -> Snapshot:
+        """
+        Get exchange snapshot
+        :param exchange: Exchange name
+        :param instmt_name: Instrument name
+        :return The exchange snapshot. None if not found.
+        """
+        return self.market_data_feed.get_exchange_snapshot(exchange, instmt_name)
 
     def request(self, req) -> Tuple[List[object],str]:
         """
@@ -100,10 +121,19 @@ class OrderServer:
         Register exchange
         :param exchange; Exchange
         """
-        name = exchange.get_name()
+        name = exchange.get_name().upper()
         assert name not in self.exchanges.keys(), "Exchange %s is duplicated." % name
         self.exchanges[name] = exchange
         self.risk_manager.register_exchange(name)
+
+    def register_strategy(self, strategy: RealTimeStrategy, instmt):
+        """
+        Register strategy
+        :param strategy: Strategy
+        :param instmt: Instrument
+        """
+        self.risk_manager.register_strategy(strategy, instmt)
+
 
     def initialize_exchange_risk(self):
         """
@@ -113,10 +143,19 @@ class OrderServer:
             req = Fix.Messages.RequestForPositions()
             req.PosReqID.value = exchange_name + self.now_string()
             req.Instrument.SecurityExchange.value = exchange_name
-            req.TransactTime.value = self.now()
+            update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now())
             responses, err_msg = self.request(req)
             assert err_msg == "", "Error (%s) is found." % err_msg
             assert len(responses) == 1, "Expect to have only one response."
+
+    def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle, strategy):
+        """
+        Valid the risk limit
+        :param message: New order single
+        :param strategy: Strategy
+        :return: True if pass.
+        """
+        return self.risk_manager.risk_check(message, strategy)
 
     def __is_valid_exchange(self, message):
         """
@@ -124,7 +163,7 @@ class OrderServer:
         :param message: Message
         :return The exchange gateway if it is valid
         """
-        exchange = message.Instrument.SecurityExchange.value
+        exchange = message.Instrument.SecurityExchange.value.upper()
         assert exchange in self.exchanges.keys(), "Cannot find exchange %s" % exchange
         return self.exchanges[exchange]
 
@@ -142,7 +181,6 @@ class OrderServer:
         elif msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
             if message.ExecID.value is None:
                 message.ExecID.value = '%s%s' % (self.now_string(), uuid())
-
             key = message.ExecID.value
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             key = message.PosReqID.value
@@ -157,7 +195,7 @@ class OrderServer:
         """
         if message.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST or \
             message.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREQUEST:
-            raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
+            return self.realtime_db.get_latest_by_order_id(message) is not None
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
 
@@ -183,6 +221,8 @@ class OrderServer:
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             pass
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
+            pass
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
             pass
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)

@@ -1,15 +1,23 @@
 #!/usr/bin/python3
 from bitz.exch_gatecoin_eis import ExchGatecoinEis
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
+from bitz.exch_backtesting import ExchBacktesting
 from bitz.order_server import OrderServer
 from bitz.realtime_strategy import RealTimeStrategy
 from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
 from bitz.file_market_data_feed import FileMarketDataFeed
-from bitz.redis_database_client import RedisDatabaseClient
+from bitz.journal_db import InternalJournalDatabase
+from bitz.realtime_database import InternalRealtimeDatabase
+from bitz.risk_manager import RiskManager
+from bitz.market_data import Snapshot
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-from bitz.logger import ConsoleLogger
+from bitz.logger import Logger, ConsoleLogger
+import bitz.instrument as instrument
 from bitz.util import update_fixtime, fixmsg2dict
 from datetime import datetime, timedelta
+from uuid import uuid4 as uuid
+from typing import Tuple
+from json import dumps
 import signal
 import argparse
 import sys
@@ -19,228 +27,245 @@ try:
 except ImportError:
     import configparser as ConfigParser
 
-def json_serial(obj):
-    """JSON serializer for objects not serializable by default json code"""
-
-    if isinstance(obj, datetime):
-        serial = obj.isoformat()
-        return serial
-    raise TypeError ("Type not serializable")
 
 class SingleMarketMaking(RealTimeStrategy):
     """
     Single market marking
     """
-    def __init__(self, name, ordsvr, logger):
+    def __init__(self, name: str, ordsvr: OrderServer, logger: Logger, fiat_size=50):
         """
         Constructor
         """
-        RealTimeStrategy.__init__(self, name, ordsvr, logger)
-        ordsvr.register_strategy(self)
-        self.fixed_order_amt = 0.01
-        ordsvr.strategy_risk_exposure[self]['open_ask_amt'] = 0
-        ordsvr.strategy_risk_exposure[self]['open_bid_amt'] = 0
-        ordsvr.strategy_risk_exposure[self]['max_bid_amt'] = self.fixed_order_amt
-        ordsvr.strategy_risk_exposure[self]['max_ask_amt'] = self.fixed_order_amt
-        self.target_instmt = ('Gatecoin', 'BTCHKD', 0.1)
-        self.referenced_instmts = [('Quoine', 'BTCUSD', 7.75, 7.80)]
-        self.opened_orders = []
-        self.last_status_inquiry_time = datetime.now()
-        self.exchange_query_available_time = datetime.now()
+        RealTimeStrategy.__init__(self, name, ordsvr, logger, fiat_size)
+        self.target_instmt = instrument.Gatecoin_BTCHKD
+        self.referenced_instmts = [instrument.Quoine_BTCUSD]
+        self.profit_margin_fiat_currency = 100          # Profit margin between the best price and the market price
+        self.fiat_size = fiat_size
 
-    def register_market_data_feed(self, market_data_feed):
+    def __create_request_id(self):
         """
-        Register market data feed
+        Create request id
+        :return: Request id
         """
-        self.market_data_feed = market_data_feed
+        return self.ordsvr.now_string() + str(uuid())
+
+    def __init_order_status_request(self,
+                                    status_request: Fix.Messages.OrderStatusRequest,
+                                    last_status: Fix.Messages.ExecutionReport):
+        """
+        Initialize the order status request by the last execution report
+        :param status_request: Order status request
+        :param last_status: Last execution report
+        """
+        status_request.OrdStatusReqID.value = self.__create_request_id()
+        status_request.OrderID.value = last_status.OrderID.value
+        status_request.Instrument.Symbol.value = last_status.Instrument.Symbol.value
+        status_request.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
+        status_request.Side.value = last_status.Side.value
+
+    def __init_order_cancel_reqeust(self,
+                                    order_cancel: Fix.Messages.OrderCancelRequest,
+                                    last_status: Fix.Messages.ExecutionReport):
+        """
+        Initialize the order cancel request by the last execution report
+        :param order_cancel: Order cancel request
+        :param last_status: Last execution report
+        """
+        order_cancel.ClOrdID.value = self.__create_request_id()
+        order_cancel.OrderID.value = last_status.OrderID.value
+        order_cancel.Instrument.Symbol.value = last_status.Instrument.Symbol.value
+        order_cancel.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
+        order_cancel.Side.value = last_status.Side.value
+
+
+    def __init_new_order_single(self, new_order_single: Fix.Messages.NewOrderSingle, price, qty):
+        """
+        Create new order single
+        :return: New order single
+        """
+        new_order_single.Instrument.Symbol.value = self.target_instmt.instmt_name
+        new_order_single.Instrument.SecurityExchange.value = self.target_instmt.exchange
+        new_order_single.Price.value = price
+        new_order_single.ClOrdID.value = self.__create_request_id()
+        new_order_single.OrderQtyData.OrderQty.value = qty
+        new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
+        new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
+
+        # Set triggering quantity. If the price is not with the first 5 price range,
+        # set it as 0 for triggering quantity.
+        new_order_single.TriggeringInstruction.TriggerPrice.value = price
+        new_order_single.TriggeringInstruction.TriggerNewQty.value = 0
+
+    def __calculate_market_price(self) -> Tuple[float, float]:
+        """
+        Calculate market price
+        :return: Tuple of best bid and ask. If no market price is calculated, None is returned
+        """
+        is_valid = True
+        best_bid = 1e9
+        best_ask = 0
+
+        for instmt in self.referenced_instmts:
+            snapshot = self.ordsvr.get_exchange_snapshot(instmt.exchange, instmt.instmt_name)
+            if snapshot is None:
+                # Return if any instrument is not prepared
+                is_valid = False
+                break
+            else:
+                bid = snapshot.order_book.b1
+                ask = snapshot.order_book.a1
+
+                if bid > 0 and ask > 0:
+                    bid *= self.target_instmt.fiat_rate
+                    ask *= self.target_instmt.fiat_rate
+
+                    best_bid = min(bid, best_bid)
+                    best_ask = max(ask, best_ask)
+                else:
+                    # Return if any side of the prices is not prepared
+                    is_valid = False
+                    break
+
+        if is_valid:
+            return best_bid, best_ask
+        else:
+            return None, None
+    def __is_place_order(self, market_price, order: Fix.Messages.NewOrderSingle):
+        """
+        Check if create a new order
+        :param market_price: Market price on the side
+        :param order: Order
+        :return: Tur if passed
+        """
+        target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
+        if order.Side.value == Fix.Tags.Side.Values.BUY:
+            market_bid = market_price - self.profit_margin_fiat_currency
+            market_bid = int(market_bid / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
+            if market_bid >= target_snapshot.order_book.b1 - self.target_instmt.tick_size:
+                price = target_snapshot.order_book.b1 - self.target_instmt.tick_size
+                qty = int(self.fiat_size / price / 0.0001 + 0.5) * 0.0001
+                self.__init_new_order_single(order, price, qty)
+                return True
+            else:
+                return False
+        elif order.Side.value == Fix.Tags.Side.Values.SELL:
+            market_ask = market_price + self.profit_margin_fiat_currency
+            # Rounding
+            market_ask = int(market_ask / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
+            if market_ask <= target_snapshot.order_book.a1 - self.target_instmt.tick_size:
+                price = target_snapshot.order_book.a1 - self.target_instmt.tick_size
+                qty = int( self.fiat_size / price / 0.0001 + 0.5) * 0.0001
+                self.__init_new_order_single(order, price, qty)
+                return True
+            else:
+                return False
+        else:
+            raise NotImplementedError("Side %s not yet implemented." % order.Side.value)
 
     def monitor(self):
         """
         Monitor the market
         """
-        assert self.market_data_feed is not None, \
-                "Market data feed is not registered."
+        # Register strategy
+        self.ordsvr.register_strategy(self, self.target_instmt)
+        # Initialize orders
+        buy_order = Fix.Messages.NewOrderSingle()
+        sell_order = Fix.Messages.NewOrderSingle()
+        order_status_request = Fix.Messages.OrderStatusRequest()
+        order_cancel_request = Fix.Messages.OrderCancelRequest()
+        buy_order.Side.value = Fix.Tags.Side.Values.BUY
+        sell_order.Side.value = Fix.Tags.Side.Values.SELL
+        target_snapshot = None
+        open_order = None
 
-        while True:
+        self.logger.info(self.__class__.__name__, "Start monitoring the market...")
 
-            # Exit the loop if clean signal is received
-            if len(self.ordsvr.strategy_open_orders[self]) == 0 and not self.running:
-                break
+        while self.running:
+            snapshot = self.ordsvr.get_latest_snapshot(0)
 
-            snapshot = self.market_data_feed.get_snapshot(timeout=5000)
-            target_exchange = self.target_instmt[0]
-            target_instmt = self.target_instmt[1]
-            tick_size = self.target_instmt[2]
+            # Flow back to the beginning of the loop if no snapshot is updated
+            if snapshot is None:
+                self.running = False
+                continue
+            elif snapshot == Snapshot.UpdateType.NONE:
+                continue
 
-            # Check strategy
-            if snapshot is not None:
-                """
-                1. Calculate the fair price of the target instrument
-                2. If there is no open position, open a new order
-                """
-                fair_bid_price = 1e9
-                fair_ask_price = 0
-                cal_instmts = self.referenced_instmts[:]
-                cal_instmts += [(target_exchange, \
-                                 target_instmt, \
-                                 tick_size, \
-                                 tick_size)]
+            # Update target snapshot
+            if target_snapshot is None:
+                target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
+                if target_snapshot is None:
+                    continue
 
-                assert target_exchange in self.ordsvr.exchange_risk_exposure.keys(), \
-                    "Target instrument %s has not been registered yet." % target_exchange
-
-                target_available_balance = self.ordsvr.exchange_risk_exposure[target_exchange]["AvailableBalance"]
-                target_buy_currency = target_instmt[3:]
-                target_sell_currency = target_instmt[0:3]
-                assert target_buy_currency in target_available_balance.keys(), \
-                        "Target buy currency %s is not found in exchange %s" % \
-                        (target_buy_currency, target_exchange)
-                assert target_sell_currency in target_available_balance.keys(), \
-                        "Target sell currency %s is not found in exchange %s" % \
-                        (target_sell_currency, target_exchange)
-                target_buy_margin = target_available_balance[target_buy_currency]
-                target_sell_margin = target_available_balance[target_sell_currency]
-
-                for i in range(0, len(cal_instmts)):
-                    referenced = cal_instmts[i]
-                    exchange = referenced[0]
-                    instmt = referenced[1]
-                    bid_rate = referenced[2]
-                    ask_rate = referenced[3]
-                    if (exchange, instmt) not in self.market_data_feed.snapshots.keys():
-                        fair_bid_price = 1e9
-                        fair_ask_price = 0
-                        break
-
-                    depth = self.market_data_feed.snapshots[(exchange, instmt)].order_book
-                    if depth.b1 == 0.0 or depth.a1 == 0.0:
-                        fair_bid_price = 1e9
-                        fair_ask_price = 0
-                        break
-
-                    if i != len(cal_instmts) - 1:
-                        fair_bid_price = min(fair_bid_price, depth.b1 * bid_rate)
-                        fair_ask_price = max(fair_ask_price, depth.a1 * ask_rate)
-                    else:
-                        fair_bid_price = min(fair_bid_price, depth.b1 + bid_rate)
-                        fair_ask_price = max(fair_ask_price, depth.a1 - ask_rate)
-
-                # self.logger.info(self.__class__.__name__, "FBid = %.6f, FAsk = %.6f" % \
-                #                     (fair_bid_price, fair_ask_price))
-
-                for side in [Fix.Tags.Side.Values.BUY, Fix.Tags.Side.Values.SELL]:
-                    # Check risk limit
-                    if side == Fix.Tags.Side.Values.BUY and \
-                       (self.ordsvr.strategy_risk_exposure[self]['open_bid_amt'] >= \
-                       self.ordsvr.strategy_risk_exposure[self]['max_bid_amt'] or \
-                       fair_bid_price >= 1e9 or \
-                       target_buy_margin < fair_bid_price * self.fixed_order_amt or \
-                       datetime.now() < self.exchange_query_available_time):
-                        continue
-                    elif side == Fix.Tags.Side.Values.SELL and \
-                       (self.ordsvr.strategy_risk_exposure[self]['open_ask_amt'] >= \
-                       self.ordsvr.strategy_risk_exposure[self]['max_ask_amt'] or \
-                       fair_ask_price <= 0 or \
-                       target_sell_margin < self.fixed_order_amt or \
-                       datetime.now() < self.exchange_query_available_time):
-                        continue
-
-                    # Create an order
-                    order_request = Fix.Messages.NewOrderSingle()
-                    order_request.Instrument.SecurityExchange.value = self.target_instmt[0]
-                    order_request.Instrument.Symbol.value = self.target_instmt[1]
-                    order_request.OrderQtyData.OrderQty.value = self.fixed_order_amt
-                    order_request.ClOrdID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMNEW')
-                    order_request.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
-                    update_fixtime(order_request, Fix.Tags.SendingTime.Tag)
-
-                    if side == Fix.Tags.Side.Values.BUY:
-                        order_request.Side.value = Fix.Tags.Side.Values.BUY
-                        order_request.Price.value = int(fair_bid_price / tick_size + tick_size/2) * tick_size
-                    else:
-                        order_request.Side.value = Fix.Tags.Side.Values.SELL
-                        order_request.Price.value = int(fair_ask_price / tick_size + tick_size/2) * tick_size
-
-                    # Send out the request
-                    fix_response = self.ordsvr.request(self, order_request)
-
-                    # Handle response
-                    if fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.NEW:
-                        # Append opened orders
-                        self.opened_orders.append(fix_response)
-                    elif fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.REJECTED:
-                        if fix_response.OrdRejReason.value == 429:
-                            # Hit the 30 txn per 1 mins limit
-                            self.exchange_query_available_time = datetime.now() + timedelta(seconds=5)
-
-
-            """
-            If there is opened position, check if
-                i. The position is filled => Signal it
-                ii. The price of the opened position is out of the range
-                    of the fair price => Cancel all opened orders
-                iii. Any other orders is,  ahead our orders => Keep the position
-                     but raise a notification
-                iv. The market data may be staled => Cancel all opened orders
-            """
-
-            # Check the order status first
-            if len(self.ordsvr.strategy_open_orders[self]) > 0 and \
-               datetime.now() - self.last_status_inquiry_time > timedelta(seconds=5):
-                self.last_status_inquiry_time = datetime.now()
-                mass_order_status = Fix.Messages.OrderMassStatusRequest()
-                mass_order_status.MassStatusReqID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMSTA')
-                mass_order_status.Instrument.SecurityExchange.value = target_exchange
-                mass_order_status.Instrument.Symbol.value = target_instmt
-                self.ordsvr.request(self, mass_order_status)
-
-            keys = list(self.ordsvr.strategy_open_orders[self].keys())
-            for key in keys:
-                open_order = self.ordsvr.strategy_open_orders[self][key]
-                if datetime.now() - open_order.TransactTime.value > timedelta(seconds=15):
-                    # Cancel the order
-                    order_request = Fix.Messages.OrderCancelRequest()
-                    order_request.Instrument.SecurityExchange.value = open_order.Instrument.SecurityExchange.value
-                    order_request.Instrument.Symbol.value = open_order.Instrument.Symbol.value
-                    order_request.Side.value = open_order.Side.value
-                    order_request.ClOrdID.value = datetime.utcnow().strftime('%Y%m%d%H%M%S%fSMMCNC')
-                    order_request.SecondaryClOrdID.value = open_order.SecondaryClOrdID.value
-                    order_request.OrderID.value = open_order.OrderID.value
-                    update_fixtime(order_request, Fix.Tags.SendingTime.Tag)
-
-                    # Send out the request
-                    fix_response = self.ordsvr.request(self, order_request)
-                    if fix_response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED and \
-                        fix_response.ExecType.value == Fix.Tags.ExecType.Values.CANCELED:
-                        del self.ordsvr.strategy_open_orders[self][key]
-                    elif fix_response.ExecType.value == Fix.Tags.ExecType.value.REJECTED and \
-                            fix_response.OrdRejReason.value == 429:
-                        # Hit 30 txns per 1 min limit
-                        self.exchange_query_available_time = datetime.now() + timedelta(seconds=5)
-
+            # Calculate the market price
+            # 1. If there is no open orders,
+            #   a) Initialize the buy and sell order by the place_price
+            #   b) Check the risk limit to decide which side can be placed
+            #   c) Send the order to the order server. If the request succeeds, get the order ack.
+            # 2. If there is open orders,
+            #   a) Monitor if the order has been filled by whether the previous depth is same as the current one.
+            #   b) If the market bid/ask is lower/larger than the placed bid/ask price, cancel the order.
+            if open_order is not None:
+                self.__init_order_status_request(order_status_request, open_order)
+                fix_responses, err_text = self.ordsvr.request(order_status_request)
+                assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                status = fix_responses[0]
+                assert status.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
+                        "Unexpected ExecTYpe value (%s)" % status.ExecType.value
+                if status.LeavesQty.value == 0:
+                    # If the order has been fully filled
+                    self.logger.info('test', fixmsg2dict(status))
+                    break
                 else:
-                    # Keep the order
-                    pass
+                    # When the order has not been filled
+                    is_cancel_order = False
+                    if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+                        is_cancel_order = target_snapshot.order_book.b1 > open_order.Price.value
+                    elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+                        is_cancel_order = target_snapshot.order_book.a1 < open_order.Price.value
+                    else:
+                        raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
 
+                    # Cancel the order if the best bid exceeds the placed price
+                    if is_cancel_order:
+                        self.__init_order_cancel_reqeust(order_cancel_request, open_order)
+                        fix_responses, err_text = self.ordsvr.request(order_cancel_request)
+                        assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                        response = fix_responses[0]
 
+                        if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT and \
+                            response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
+                            # Order is canceled
+                            open_order = None
+                            self.logger.info(self.__class__.__name__, "Cancel is accepted.\n" % fixmsg2dict(response))
+                        elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+                            # Order is not canceled
+                            self.logger.info(self.__class__.__name__, "Cancel is rejected.\n" % fixmsg2dict(response))
 
-    def _update_order_book(self):
-        """
-        Update order book
-        """
-        pass
+                    self.logger.info('test', '%s: Placed: %.4f / Market Price: %.4f' % (self.ordsvr.now_string(), status.Price.value, self.__calculate_market_price()[0]))
+            else:
+                market_bid, market_ask = self.__calculate_market_price()
+                if self.__is_place_order(market_bid, buy_order) and \
+                    self.ordsvr.valid_risk_limit(buy_order, self):
+                    fix_responses, err_text = self.ordsvr.request(buy_order)
+                elif self.__is_place_order(market_ask, sell_order) and \
+                        self.ordsvr.valid_risk_limit(sell_order, self):
+                    fix_responses, err_text = self.ordsvr.request(sell_order)
+                else:
+                    continue
 
-    def _send_order(self, **kargs):
-        """
-        Send order
-        """
-        pass
-
-    def _check_open_orders(self, **kargs):
-        """
-        Check open orders from the order server
-        """
-        pass
+                # Check the placement response
+                if err_text == "":
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    response = fix_responses[0]     # Order ack/nack
+                    if response.ExecType.value == Fix.Tags.ExecType.Values.NEW:
+                        # Order ack
+                        open_order = response
+                        self.logger.info(self.__class__.__name__, "Order is opened.\n%s" % fixmsg2dict(response))
+                    else:
+                        # Order nack
+                        self.logger.info(self.__class__.__name__, "Order is rejected.\n%s" % fixmsg2dict(response))
+                else:
+                    self.logger.info(self.__class__.__name__, "Error (%s) in placing orders." % err_text)
 
 def get_args():
     """
@@ -261,8 +286,24 @@ def main():
     config = ConfigParser.ConfigParser()
     config.read(args.config)
 
-    # Market data feed
+    # Logger
+    logger = ConsoleLogger.static_logger
+
+    # Starting...
+    logger.info('[main]', "Process is starting now...")
+
+    # Mode
     market_data_feed_type = config.get('MarketFeed', 'Type')
+    is_production = (market_data_feed_type == 'bcfh')
+
+    # Databases
+    journal_db = InternalJournalDatabase()
+    realtime_db = InternalRealtimeDatabase()
+
+    # Risk manager
+    risk_manager = RiskManager()
+
+    # Market data feed
     if market_data_feed_type == 'file':
         market_data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
         market_data_feed.connect(files=eval(config.get('MarketFeed', 'Files')))
@@ -272,33 +313,32 @@ def main():
     else:
         raise Exception("Cannot recognize the market data feed type %s" % market_data_feed_type)
 
-    # Gateway initialization
-    # gatecoin_eig = ExchGatecoinEig(ConsoleLogger.static_logger,
-    #                                config.get('Gatecoin', 'public'),
-    #                                config.get('Gatecoin', 'private'))
-    # gatecoin_eis = ExchGatecoinEis(gatecoin_eig)
+    # Order server
+    order_server = OrderServer(logger, journal_db, realtime_db, risk_manager, market_data_feed)
 
-    # Database initialization
-    database_port = int(config.get('Database', 'Port'))
-    request_db_client = RedisDatabaseClient()
-    request_db_client.connect(host='localhost',
-                              port=database_port,
-                              db=int(config.get('Database', 'Request')))
-    response_db_client = RedisDatabaseClient()
-    response_db_client.connect(host='localhost',
-                              port=database_port,
-                              db=int(config.get('Database', 'Response')))
+    # Register gateway
+    if is_production:
+        public_key = config.get('Gatecoin', 'public')
+        private_key = config.get('Gatecoin', 'private')
+        eig = ExchGatecoinEig(logger, public_key, private_key)
+        eis = ExchGatecoinEis(eig)
+    else:
+        eis = ExchBacktesting('Gatecoin', market_data_feed)
 
-    # Order server initialization
-    ordsvr = OrderServer(request_db_client, response_db_client, ConsoleLogger.static_logger, market_data_feed)
-    # ordsvr.register_gateway('Gatecoin', gatecoin_eis)
-    # ordsvr.query_risk_exposure()
+    # Register exchange
+    order_server.register_exchange(eis)
+
+    # Initialize exchange risk
+    order_server.initialize_exchange_risk()
 
     # Strategy initialization
-    smm = SingleMarketMaking('SingleMarketMaking', ordsvr, ConsoleLogger.static_logger)
+    smm = SingleMarketMaking('SingleMarketMaking', order_server, logger)
     signal.signal(signal.SIGINT, smm.handle_signal)
     signal.signal(signal.SIGTERM, smm.handle_signal)
     smm.monitor()
+
+    # Starting...
+    logger.info('[main]', "Process has ended.")
 
 if __name__ == '__main__':
     main()

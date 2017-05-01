@@ -20,7 +20,7 @@ class TFileMarketDataFeed(unittest.TestCase):
         ret = data_feed.get_snapshot(timeout=1)
         self.assertIsInstance(ret, int)
         self.assertEqual(ret, 0)
-        snapshot = data_feed.snapshots[('quoine', 'btcusd')]
+        snapshot = data_feed.get_exchange_snapshot('quoine', 'btcusd')
         self.assertEqual(1190.7, snapshot.order_book.b1)
         self.assertEqual(1192.29, snapshot.order_book.a1)
         self.assertEqual(1.99, snapshot.order_book.bq1)
@@ -33,8 +33,8 @@ class TFileMarketDataFeed(unittest.TestCase):
         # Get snapshot with timeout = 30 mins
         ret = data_feed.get_snapshot(timeout=1000000 * 60 * 30)
         self.assertIsInstance(ret, Snapshot)
-        self.assertEqual('quoine', ret.exchange)
-        self.assertEqual('btcusd', ret.instmt)
+        self.assertEqual('QUOINE', ret.exchange)
+        self.assertEqual('BTCUSD', ret.instmt)
         self.assertEqual(1190.7, ret.order_book.b1)
         self.assertEqual(1192.3, ret.order_book.a1)
         self.assertEqual(1.99, ret.order_book.bq1)
@@ -63,8 +63,8 @@ class TFileMarketDataFeed(unittest.TestCase):
         # Get snapshot with timeout = 30 mins
         ret = data_feed.get_snapshot(timeout=1000000 * 60 * 30)
         self.assertIsInstance(ret, Snapshot)
-        self.assertEqual('quoine', ret.exchange)
-        self.assertEqual('btcusd', ret.instmt)
+        self.assertEqual('QUOINE', ret.exchange)
+        self.assertEqual('BTCUSD', ret.instmt)
         self.assertEqual(1190.7, ret.order_book.b1)
         self.assertEqual(1192.3, ret.order_book.a1)
         self.assertEqual(1.99, ret.order_book.bq1)
@@ -76,8 +76,8 @@ class TFileMarketDataFeed(unittest.TestCase):
         # Get snapshot with timeout = 30 mins
         ret = data_feed.get_snapshot(timeout=1000000 * 60 * 30)
         self.assertIsInstance(ret, Snapshot)
-        self.assertEqual('gatecoin', ret.exchange)
-        self.assertEqual('btchkd', ret.instmt)
+        self.assertEqual('GATECOIN', ret.exchange)
+        self.assertEqual('BTCHKD', ret.instmt)
         self.assertEqual(9155.9, ret.order_book.b1)
         self.assertEqual(9269.1, ret.order_book.a1)
         self.assertEqual(1.19, ret.order_book.bq1)

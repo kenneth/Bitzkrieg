@@ -49,8 +49,8 @@ class BcfhMarketDataFeed(MarketDataFeed):
         if table_name == 'exchanges_snapshot':
             assert('exchange' in data.keys())
             assert('instmt' in data.keys())
-            exchange = data['exchange']
-            instmt = data['instmt']
+            exchange = data['exchange'].upper()
+            instmt = data['instmt'].upper()
             snapshot = self.snapshots.setdefault((exchange, instmt), Snapshot(exchange, instmt))
             if len(data.keys()) != 28:
                 self.logger.error(self.__class__.__name__, "Invalid data (%s)" % data)

@@ -43,7 +43,7 @@ class TOrderServer(unittest.TestCase):
         :return: New order single
         """
         new_order_single = Fix.Messages.NewOrderSingle()
-        snapshot = order_server.market_data_feed.snapshots[(self.exchange_name, self.instmt)]
+        snapshot = order_server.market_data_feed.get_exchange_snapshot(self.exchange_name, self.instmt)
         price = snapshot.order_book.b1
         qty = 1
         side = Fix.Tags.Side.Values.BUY
@@ -92,7 +92,7 @@ class TOrderServer(unittest.TestCase):
         with self.assertRaises(AssertionError) as context:
             order_server.register_exchange(gateway)
 
-        self.assertTrue(("Exchange %s is duplicated." % self.exchange_name) in str(context.exception))
+        self.assertTrue(("Exchange %s is duplicated." % self.exchange_name.upper()) in str(context.exception))
 
     def test_initialize_exchange_risk(self):
         """

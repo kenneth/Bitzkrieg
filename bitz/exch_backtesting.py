@@ -50,7 +50,8 @@ class ExchBacktesting(object):
         if msgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
             exchange = req.Instrument.SecurityExchange.value
             instmt = req.Instrument.Symbol.value
-            if (exchange, instmt) not in self.__market_data_feed.snapshots.keys():
+            snapshot = self.__market_data_feed.get_exchange_snapshot(exchange, instmt)
+            if snapshot is None:
                 # Reject the order with invalid instrument
                 raise NotImplementedError("Ack rejection")
             else:
@@ -90,12 +91,20 @@ class ExchBacktesting(object):
             #         fix_response.CxlRejReason.value = response['responseStatus']['errorCode']
 
             # Add TransactTime
-            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag)
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, self.__market_data_feed.now())
             # Ready to send
             fix_responses.append(fix_response)
 
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
             raise NotImplementedError("ORDERMASSSTATUSREQUEST")
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+            order_id = req.OrderID.value
+            if order_id in self.__open_positions.keys():
+                last_order_update = deepcopy(self.__open_positions[order_id][-1])
+                last_order_update.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+                fix_responses.append(last_order_update)
+            else:
+                raise NotImplementedError("Reject not found order id" % order_id)
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             fix_responses.append(self.__prepare_position_report(req))
         else:
@@ -143,6 +152,30 @@ class ExchBacktesting(object):
         assert order_id in self.__open_positions.keys(), "Invalid order ID %s" % order_id
         return self.__open_positions[order_id][-1]
 
+    def __update_volume_fill_information(self, response: Fix.Messages.ExecutionReport, trade_px, trade_vol):
+        """
+        Update volume fill information, e.g. CumQty, AvgQty, LastPx, LastQty and LeavesQty
+        :param response: Execution report
+        :param trade_px: Trade price
+        :param trade_vol: Trade volume
+        """
+        prev_cumqty = response.CumQty.value
+        prev_avgpx = response.AvgPx.value
+        prev_leavesqty = response.LeavesQty.value
+
+        response.LastPx.value = trade_px
+        response.LastQty.value = trade_vol
+
+        if prev_cumqty is None:
+            response.AvgPx.value = trade_px
+            response.CumQty.value = trade_vol
+        else:
+            response.AvgPx.value = (prev_cumqty * prev_avgpx + trade_vol * trade_px) / (prev_cumqty + trade_vol)
+            response.CumQty.value = prev_cumqty + trade_vol
+
+        if prev_leavesqty is None or prev_leavesqty > 0.0:
+            response.LeavesQty.value = response.OrderQtyData.OrderQty.value - response.CumQty.value
+
     def __prepare_execution_report(self, req):
         """
         Prepare an execution report
@@ -174,10 +207,7 @@ class ExchBacktesting(object):
         response.TriggeringInstruction.TriggerNewQty.value = req.TriggeringInstruction.TriggerNewQty.value
         response.ExecType.value = Fix.Tags.ExecType.Values.NEW
         response.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
-        response.LeavesQty.value = response.OrderQtyData.OrderQty.value
-        response.LastQty.value = 0
-        response.CumQty.value = 0
-        response.LastPx.value = 0
+        self.__update_volume_fill_information(response, 0, 0)
         return response
 
     def __prepare_exectype_canceled(self, req):
@@ -203,6 +233,7 @@ class ExchBacktesting(object):
         response.LastQty.value = open_position[-1].LastQty.value
         response.CumQty.value = open_position[-1].CumQty.value
         response.LastPx.value = open_position[-1].LastPx.value
+        response.AvgPx.value = open_position[-1].AvgPx.value
         return response
 
     def __prepare_exectype_cancelReject(self, req):
@@ -266,17 +297,13 @@ class ExchBacktesting(object):
                 response.LastPx.value = response.Price.value
                 # Leaves quantity and status
                 if snapshot.order_book.aq1 >= response.LeavesQty.value:
-                    response.LastQty.value = response.LeavesQty.value 
-                    response.LeavesQty.value = 0
-                    response.CumQty.value = response.OrderQtyData.OrderQty.value
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
                     response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, response.LeavesQty.value)
                 else:
-                    response.LastQty.value = snapshot.order_book.aq1
-                    response.LeavesQty.value -= snapshot.order_book.aq1
-                    response.CumQty.value += snapshot.order_book.aq1
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
                     response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, snapshot.order_book.aq1)
                 return response
             else:
                 # Update the queue position
@@ -304,17 +331,13 @@ class ExchBacktesting(object):
                 response.LastPx.value = response.Price.value
                 # Leaves quantity and status
                 if snapshot.order_book.bq1 >= response.LeavesQty.value:
-                    response.LastQty.value = response.LeavesQty.value 
-                    response.LeavesQty.value = 0
-                    response.CumQty.value = response.OrderQtyData.OrderQty.value
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
                     response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, response.LeavesQty.value)
                 else:
-                    response.LastQty.value = snapshot.order_book.bq1                    
-                    response.LeavesQty.value -= snapshot.order_book.bq1
-                    response.CumQty.value += snapshot.order_book.bq1
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
                     response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, snapshot.order_book.bq1)
                 return response
             else:
                 # Update the queue position
@@ -352,18 +375,15 @@ class ExchBacktesting(object):
                 response.LastPx.value = snapshot.last_trade.trade_price
                 # Leaves quantity and status
                 if trade_volume >= response.LeavesQty.value:
-                    response.LastQty.value = response.LeavesQty.value
-                    response.LeavesQty.value = 0
-                    response.CumQty.value = response.OrderQtyData.OrderQty.value
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
                     response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, response.LeavesQty.value)
                 else:
                     response.LastQty.value = trade_volume
-                    response.LeavesQty.value -= trade_volume
-                    response.CumQty.values += trade_volume
                     response.OrdStatus.value = Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
-                    response.ExecType.value = Fix.Tags.ExecType.Values.TRADE   
-                    
+                    response.ExecType.value = Fix.Tags.ExecType.Values.TRADE
+                    self.__update_volume_fill_information(response, response.Price.value, trade_volume)
+
                 response.TriggeringInstruction.TriggerNewQty.value = 0
                 return response
             else:

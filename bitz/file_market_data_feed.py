@@ -51,8 +51,8 @@ class FileMarketDataFeed(MarketDataFeed):
             :param fname    File name
             """
             self.fhandler = open(fname, "r")
-            self.exchange = fname.split('_')[1]
-            self.instmt_name = fname.split('_')[2]
+            self.exchange = fname.split('_')[1].upper()
+            self.instmt_name = fname.split('_')[2].upper()
             self.fhandler.readline()
             self.curr = []
             self.next = self.fhandler.readline().split(',')

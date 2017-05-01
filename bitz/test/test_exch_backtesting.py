@@ -21,7 +21,7 @@ class TExchBacktesting(unittest.TestCase):
         market_data_feed.get_snapshot(timeout=100)
 
         # Initialize the exchange quoine
-        exch_snapshot = market_data_feed.snapshots[('quoine', 'btcusd')]
+        exch_snapshot = market_data_feed.get_exchange_snapshot('quoine', 'btcusd')
         exch = ExchBacktesting('quoine', market_data_feed, exch_snapshot)
         
         return market_data_feed, exch_snapshot, exch
