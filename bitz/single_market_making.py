@@ -1,17 +1,8 @@
 #!/usr/bin/python3
-from bitz.exch_gatecoin_eis import ExchGatecoinEis
-from bitz.exch_gatecoin_eig import ExchGatecoinEig
-from bitz.exch_backtesting import ExchBacktesting
-from bitz.order_server import OrderServer
 from bitz.realtime_strategy import RealTimeStrategy
-from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
-from bitz.file_market_data_feed import FileMarketDataFeed
-from bitz.journal_db import InternalJournalDatabase
-from bitz.realtime_database import InternalRealtimeDatabase
-from bitz.risk_manager import RiskManager
+from bitz.factory import Factory
 from bitz.market_data import Snapshot
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-from bitz.logger import Logger, ConsoleLogger
 import bitz.instrument as instrument
 from bitz.util import update_fixtime, fixmsg2dict
 from datetime import datetime, timedelta
@@ -32,7 +23,7 @@ class SingleMarketMaking(RealTimeStrategy):
     """
     Single market marking
     """
-    def __init__(self, name: str, ordsvr: OrderServer, logger: Logger, fiat_size=50):
+    def __init__(self, name: str, ordsvr, logger, fiat_size=50):
         """
         Constructor
         """
@@ -282,51 +273,24 @@ def main():
     # Get input arguments
     args = get_args()
 
-    # Set configuration
-    config = ConfigParser.ConfigParser()
-    config.read(args.config)
+    # Create factory
+    factory = Factory(args.config)
 
     # Logger
-    logger = ConsoleLogger.static_logger
+    logger = factory.create_logger()
 
     # Starting...
     logger.info('[main]', "Process is starting now...")
 
-    # Mode
-    market_data_feed_type = config.get('MarketFeed', 'Type')
-    is_production = (market_data_feed_type == 'bcfh')
-
-    # Databases
-    journal_db = InternalJournalDatabase()
-    realtime_db = InternalRealtimeDatabase()
-
-    # Risk manager
-    risk_manager = RiskManager()
-
-    # Market data feed
-    if market_data_feed_type == 'file':
-        market_data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
-        market_data_feed.connect(files=eval(config.get('MarketFeed', 'Files')))
-    elif market_data_feed_type == 'bcfh':
-        market_data_feed = BcfhMarketDataFeed(ConsoleLogger.static_logger)
-        market_data_feed.connect(addr=config.get('MarketFeed', 'Host'))
-    else:
-        raise Exception("Cannot recognize the market data feed type %s" % market_data_feed_type)
-
-    # Order server
-    order_server = OrderServer(logger, journal_db, realtime_db, risk_manager, market_data_feed)
-
-    # Register gateway
-    if is_production:
-        public_key = config.get('Gatecoin', 'public')
-        private_key = config.get('Gatecoin', 'private')
-        eig = ExchGatecoinEig(logger, public_key, private_key)
-        eis = ExchGatecoinEis(eig)
-    else:
-        eis = ExchBacktesting('Gatecoin', market_data_feed)
+    # Initialize objects
+    market_data_feed = factory.create_market_data_feed(logger)
+    journal_db = factory.create_journal_database()
+    realtime_db = factory.create_realtime_database()
+    risk_manager = factory.create_risk_manager()
+    order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed)
 
     # Register exchange
-    order_server.register_exchange(eis)
+    order_server.register_exchange(factory.create_exchange('Gatecoin', market_data_feed=market_data_feed))
 
     # Initialize exchange risk
     order_server.initialize_exchange_risk()
