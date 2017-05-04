@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from bitz.logger import Logger
+from bitz.exchange import Exchange
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.logger import ConsoleLogger
@@ -9,18 +9,13 @@ import argparse
 import json
 import sys
 
-class ExchGatecoinEis(object):
+class ExchGatecoinEis(Exchange):
     """
     Exchange gateway server
     """
     def __init__(self, eig):
+        Exchange.__init__(self, 'Gatecoin')
         self.eig = eig
-
-    def get_name(self):
-        """
-        Get the exchange name
-        """
-        return 'Gatecoin'
 
     def generate_execution_report(self):
         """
@@ -211,6 +206,7 @@ class ExchGatecoinEis(object):
                 fix_message.OrderQtyData.OrderQty.value = orderQty
                 fix_message.LeavesQty.value = leavesQty
                 fix_message.CumQty.value = orderQty - leavesQty
+                fix_message.AvgPx = fix_message.Price.value
                 if ordStatus == 1:
                     fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
                 else:

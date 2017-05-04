@@ -67,7 +67,11 @@ class OrderServer:
         """
         Get market data feed snapshot
         """
-        return self.market_data_feed.get_snapshot(timeout)
+        snapshot = self.market_data_feed.get_snapshot(timeout)
+        if isinstance(snapshot, Snapshot):
+            for exch_name, exch in self.exchanges.items():
+                exch.snapshot_updated(snapshot)
+        return snapshot
 
     def get_exchange_snapshot(self, exchange, instmt_name) -> Snapshot:
         """

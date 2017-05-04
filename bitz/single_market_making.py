@@ -31,7 +31,10 @@ class SingleMarketMaking(RealTimeStrategy):
         self.target_instmt = instrument.Gatecoin_BTCHKD
         self.referenced_instmts = [instrument.Quoine_BTCUSD]
         self.profit_margin_fiat_currency = 100          # Profit margin between the best price and the market price
+        self.aggressiveness = 1                         # Number of ticks place above the best price
         self.fiat_size = fiat_size
+        self.rejected_request = 0
+        self.max_rejected_request = 10
 
     def __create_request_id(self):
         """
@@ -132,8 +135,8 @@ class SingleMarketMaking(RealTimeStrategy):
         if order.Side.value == Fix.Tags.Side.Values.BUY:
             market_bid = market_price - self.profit_margin_fiat_currency
             market_bid = int(market_bid / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
-            if market_bid >= target_snapshot.order_book.b1 - self.target_instmt.tick_size:
-                price = target_snapshot.order_book.b1 - self.target_instmt.tick_size
+            if market_bid >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.tick_size:
+                price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.tick_size
                 qty = int(self.fiat_size / price / 0.0001 + 0.5) * 0.0001
                 self.__init_new_order_single(order, price, qty)
                 return True
@@ -143,8 +146,8 @@ class SingleMarketMaking(RealTimeStrategy):
             market_ask = market_price + self.profit_margin_fiat_currency
             # Rounding
             market_ask = int(market_ask / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
-            if market_ask <= target_snapshot.order_book.a1 - self.target_instmt.tick_size:
-                price = target_snapshot.order_book.a1 - self.target_instmt.tick_size
+            if market_ask <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.tick_size:
+                price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.tick_size
                 qty = int( self.fiat_size / price / 0.0001 + 0.5) * 0.0001
                 self.__init_new_order_single(order, price, qty)
                 return True
@@ -204,8 +207,9 @@ class SingleMarketMaking(RealTimeStrategy):
                         "Unexpected ExecTYpe value (%s)" % status.ExecType.value
                 if status.LeavesQty.value == 0:
                     # If the order has been fully filled
-                    self.logger.info('test', fixmsg2dict(status))
-                    break
+                    self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
+                                     (status.CumQty.value, fixmsg2dict(status)))
+                    open_order = None
                 else:
                     # When the order has not been filled
                     is_cancel_order = False
@@ -230,6 +234,7 @@ class SingleMarketMaking(RealTimeStrategy):
                             self.logger.info(self.__class__.__name__, "Cancel is accepted.\n" % fixmsg2dict(response))
                         elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
                             # Order is not canceled
+                            self.rejected_request += 1
                             self.logger.info(self.__class__.__name__, "Cancel is rejected.\n" % fixmsg2dict(response))
 
                     self.logger.info('test', '%s: Placed: %.4f / Market Price: %.4f' % (self.ordsvr.now_string(), status.Price.value, self.__calculate_market_price()[0]))
@@ -252,11 +257,18 @@ class SingleMarketMaking(RealTimeStrategy):
                         # Order ack
                         open_order = response
                         self.logger.info(self.__class__.__name__, "Order is opened.\n%s" % fixmsg2dict(response))
-                    else:
+                    elif response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED:
                         # Order nack
+                        self.rejected_request += 1
                         self.logger.info(self.__class__.__name__, "Order is rejected.\n%s" % fixmsg2dict(response))
+                    else:
+                        raise NotImplementedError("Not implemented ExecType (%s)" % response.ExecType.value)
                 else:
                     self.logger.info(self.__class__.__name__, "Error (%s) in placing orders." % err_text)
+
+            if self.rejected_request > self.max_rejected_request:
+                self.logger.error(self.__class__.__name__, "Number of rejected request (%d) has already exceeded." % self.rejected_request)
+                break
 
 def get_args():
     """

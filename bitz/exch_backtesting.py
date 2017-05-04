@@ -1,11 +1,10 @@
 #!/usr/bin/python3
+from bitz.exchange import Exchange
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-from bitz.logger import ConsoleLogger
 from bitz.util import update_fixtime
-from datetime import timedelta
 from copy import deepcopy
 
-class ExchBacktesting(object):
+class ExchBacktesting(Exchange):
     """
     Exchange gateway server
     """
@@ -16,26 +15,12 @@ class ExchBacktesting(object):
         :param market_data_feed: Market data feed
         :param network_latency: The network latency on messages
         """
-        self.__name = name
+        Exchange.__init__(self, name)
         self.__market_data_feed = market_data_feed
         self.__network_latency = network_latency
         self.__exch_order_id = 0
         self.__open_positions = {}
         self.__price_gap_detection = 100
-
-    def get_name(self):
-        """
-        Get the exchange name
-        """
-        return self.__name
-
-    def __get_next_exch_order_id(self):
-        """
-        Get the next exchange order id
-        :return: Exchange order id, an integer
-        """
-        self.__exch_order_id += 1
-        return self.__exch_order_id
 
     def request(self, req):
         """
@@ -118,15 +103,14 @@ class ExchBacktesting(object):
         :param snapshot: The instrument snapshot
         :return FIX message responses if provided.
         """
-        responses = []
         exchange = snapshot.exchange
         instmt = snapshot.instmt
 
         # For each open position, update the order status if necessary
         for order_id, order_updates in self.__open_positions.items():
             last_order_update = order_updates[-1]
-            if last_order_update.Instrument.SecurityExchange.value == exchange and \
-               last_order_update.Instrument.Symbol.value == instmt:
+            if last_order_update.Instrument.SecurityExchange.value.upper() == exchange and \
+               last_order_update.Instrument.Symbol.value.upper() == instmt:
                 response = None
                 if snapshot.update_type == snapshot.UpdateType.ORDER_BOOK:
                     response = self.__update_last_execution_report_price_update(snapshot, last_order_update)
@@ -151,6 +135,14 @@ class ExchBacktesting(object):
         """
         assert order_id in self.__open_positions.keys(), "Invalid order ID %s" % order_id
         return self.__open_positions[order_id][-1]
+
+    def __get_next_exch_order_id(self):
+        """
+        Get the next exchange order id
+        :return: Exchange order id, an integer
+        """
+        self.__exch_order_id += 1
+        return self.__exch_order_id
 
     def __update_volume_fill_information(self, response: Fix.Messages.ExecutionReport, trade_px, trade_vol):
         """
@@ -365,8 +357,11 @@ class ExchBacktesting(object):
         :param last_order_update: The last execution report
         :return Fill execution reports if there is any fills. None if the execution
                 report is updated only. (Only on TriggeringInstruction)
-        """                
-        if snapshot.last_trade.trade_price == last_order_update.Price.value:
+        """
+        if (last_order_update.Side.value == Fix.Tags.Side.Values.BUY and
+                snapshot.last_trade.trade_price <= last_order_update.Price.value) or \
+            (last_order_update.Side.value == Fix.Tags.Side.Values.SELL and
+                snapshot.last_trade.trade_price >= last_order_update.Price.value):
             if last_order_update.TriggeringInstruction.TriggerNewQty.value - snapshot.last_trade.trade_volume < 0:
                 # The order got filled
                 response = deepcopy(last_order_update)
