@@ -1,6 +1,6 @@
 #!/bin/python
 from bitz.order_server import OrderServer
-from bitz.journal_db import InternalJournalDatabase
+from bitz.journal_database import InternalJournalDatabase
 from bitz.realtime_database import InternalRealtimeDatabase
 from bitz.risk_manager import RiskManager
 from bitz.file_market_data_feed import FileMarketDataFeed
@@ -52,7 +52,7 @@ class TOrderServer(unittest.TestCase):
         new_order_single.Price.value = price
         new_order_single.TriggeringInstruction.TriggerPrice.value = price
         new_order_single.Side.value = side
-        new_order_single.ClOrdID.value = uuid()
+        new_order_single.ClOrdID.value = str(uuid())
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY

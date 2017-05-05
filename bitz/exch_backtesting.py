@@ -247,6 +247,7 @@ class ExchBacktesting(Exchange):
 
     def __prepare_position_report(self, req):
         fix_message = Fix.Messages.PositionReport()
+        fix_message.PosReqID.value = req.PosReqID.value
         fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
         fix_message.ClearingBusinessDate.value = self.__market_data_feed.now().strftime("%Y%m%d")
         

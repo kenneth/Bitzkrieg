@@ -171,6 +171,7 @@ class SingleMarketMaking(RealTimeStrategy):
         sell_order.Side.value = Fix.Tags.Side.Values.SELL
         target_snapshot = None
         open_order = None
+        last_target_best_price = (0, 0)
 
         self.logger.info(self.__class__.__name__, "Start monitoring the market...")
 
@@ -199,45 +200,60 @@ class SingleMarketMaking(RealTimeStrategy):
             #   a) Monitor if the order has been filled by whether the previous depth is same as the current one.
             #   b) If the market bid/ask is lower/larger than the placed bid/ask price, cancel the order.
             if open_order is not None:
-                self.__init_order_status_request(order_status_request, open_order)
-                fix_responses, err_text = self.ordsvr.request(order_status_request)
-                assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                status = fix_responses[0]
-                assert status.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
-                        "Unexpected ExecTYpe value (%s)" % status.ExecType.value
-                if status.LeavesQty.value == 0:
-                    # If the order has been fully filled
-                    self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
-                                     (status.CumQty.value, fixmsg2dict(status)))
-                    open_order = None
-                else:
-                    # When the order has not been filled
-                    is_cancel_order = False
-                    if open_order.Side.value == Fix.Tags.Side.Values.BUY:
-                        is_cancel_order = target_snapshot.order_book.b1 > open_order.Price.value
-                    elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
-                        is_cancel_order = target_snapshot.order_book.a1 < open_order.Price.value
+                if (open_order.Side.value == Fix.Tags.Side.Values.BUY and
+                    (target_snapshot.order_book.b1 != last_target_best_price[0] or
+                     target_snapshot.order_book.bq1 != last_target_best_price[1])) or \
+                   (open_order.Side.value == Fix.Tags.Side.Values.SELL and
+                     (target_snapshot.order_book.a1 != last_target_best_price[0] or
+                      target_snapshot.order_book.aq1 != last_target_best_price[1])):
+                    # Query the order status only when the best price has changed
+                    self.__init_order_status_request(order_status_request, open_order)
+                    fix_responses, err_text = self.ordsvr.request(order_status_request)
+                    # Assert
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    status = fix_responses[0]
+                    assert status.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
+                            "Unexpected ExecTYpe value (%s)" % status.ExecType.value
+                    # Check leaves qty
+                    if status.LeavesQty.value == 0:
+                        # If the order has been fully filled
+                        self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
+                                         (status.CumQty.value, fixmsg2dict(status)))
+                        open_order = None
+                        last_target_best_price = (0, 0)
+                        continue
                     else:
-                        raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
+                        if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+                            last_target_best_price = (target_snapshot.order_book.b1, target_snapshot.order_book.bq1)
+                        elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+                            last_target_best_price = (target_snapshot.order_book.a1, target_snapshot.order_book.aq1)
+                        else:
+                            raise NotImplementedError("Side (%s) not yet implemented." % open_order.Side.value)
 
-                    # Cancel the order if the best bid exceeds the placed price
-                    if is_cancel_order:
-                        self.__init_order_cancel_reqeust(order_cancel_request, open_order)
-                        fix_responses, err_text = self.ordsvr.request(order_cancel_request)
-                        assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                        response = fix_responses[0]
+                # When the order has not been filled
+                if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+                    is_cancel_order = target_snapshot.order_book.b1 > open_order.Price.value
+                elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+                    is_cancel_order = target_snapshot.order_book.a1 < open_order.Price.value
+                else:
+                    raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
 
-                        if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT and \
-                            response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
-                            # Order is canceled
-                            open_order = None
-                            self.logger.info(self.__class__.__name__, "Cancel is accepted.\n" % fixmsg2dict(response))
-                        elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
-                            # Order is not canceled
-                            self.rejected_request += 1
-                            self.logger.info(self.__class__.__name__, "Cancel is rejected.\n" % fixmsg2dict(response))
+                # Cancel the order if the best bid exceeds the placed price
+                if is_cancel_order:
+                    self.__init_order_cancel_reqeust(order_cancel_request, open_order)
+                    fix_responses, err_text = self.ordsvr.request(order_cancel_request)
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    response = fix_responses[0]
 
-                    self.logger.info('test', '%s: Placed: %.4f / Market Price: %.4f' % (self.ordsvr.now_string(), status.Price.value, self.__calculate_market_price()[0]))
+                    if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT and \
+                        response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
+                        # Order is canceled
+                        open_order = None
+                        self.logger.info(self.__class__.__name__, "Cancel is accepted.\n" % fixmsg2dict(response))
+                    elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+                        # Order is not canceled
+                        self.rejected_request += 1
+                        self.logger.info(self.__class__.__name__, "Cancel is rejected.\n" % fixmsg2dict(response))
             else:
                 market_bid, market_ask = self.__calculate_market_price()
                 if self.__is_place_order(market_bid, buy_order) and \

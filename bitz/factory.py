@@ -3,7 +3,7 @@ from bitz.market_data_feed import MarketDataFeed
 from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
 from bitz.file_market_data_feed import FileMarketDataFeed
 from bitz.realtime_database import AbstractRealtimeDatabase, InternalRealtimeDatabase
-from bitz.journal_db import AbstractJournalDatabase, InternalJournalDatabase
+from bitz.journal_database import AbstractJournalDatabase, InternalJournalDatabase
 from bitz.order_server import OrderServer
 from bitz.logger import Logger, ConsoleLogger
 from bitz.risk_manager import RiskManager
@@ -45,16 +45,30 @@ class Factory(object):
         Create realtime database
         :return: Realtime database
         """
-        # TODO: Provide more choices
-        return InternalRealtimeDatabase()
+        section = 'RealtimeDatabase'
+        database_type = self.__config.get(section, 'Type')
+        if database_type == 'Internal':
+            path = self.__config.get(section, 'Path')
+            db = InternalRealtimeDatabase()
+            db.connect(path=path)
+            return db
+        else:
+            raise NotImplementedError("Database type (%s) has not yet been implemented." % database_type)
 
     def create_journal_database(self) -> AbstractJournalDatabase:
         """
         Create journal database
         :return: Journal database
         """
-        # TODO: Provide more choices
-        return InternalJournalDatabase()
+        section = 'JournalDatabase'
+        database_type = self.__config.get(section, 'Type')
+        if database_type == 'Internal':
+            path = self.__config.get(section, 'Path')
+            db = InternalJournalDatabase()
+            db.connect(path=path)
+            return db
+        else:
+            raise NotImplementedError("Database type (%s) has not yet been implemented." % database_type)
 
     def create_market_data_feed(self, logger) -> MarketDataFeed:
         """

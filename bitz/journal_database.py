@@ -1,4 +1,8 @@
 #!/bin/python
+from datetime import datetime
+import os
+
+
 class AbstractJournalDatabase(object):
     """
     Abstract journal database
@@ -42,13 +46,30 @@ class InternalJournalDatabase(AbstractJournalDatabase):
         Constructor
         """
         self.__journal = {}
+        self.__output_path = ''
+
+    def __del__(self):
+        """
+        Destructor
+        :return:
+        """
+        if self.__output_path != '':
+            name = os.path.join(self.__output_path, 'journal_db_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S'))
+            file = open(name, 'w+')
+            for key in sorted(self.__journal.keys()):
+                file.write("%s,%s\n" % (key, self.__journal[key]))
+            file.close()
 
     def connect(self, **kwargs):
         """
         Connect
         :param kwargs: Arguments
         """
-        pass
+        self.__output_path = kwargs.setdefault('path', '')
+        if not os.path.isdir(self.__output_path):
+            prev_path = self.__output_path
+            self.__output_path = ''
+            assert False, "Invalid output path (%s)" % prev_path
 
     def insert(self, key, value):
         """

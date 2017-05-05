@@ -1,6 +1,9 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
+from bitz.util import fixmsg2dict
 from typing import Union
+from datetime import datetime
+import os
 
 class AbstractRealtimeDatabase(object):
     """
@@ -43,17 +46,40 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
         Constructor
         """
         AbstractRealtimeDatabase.__init__(self)
+        self.__output_path = ''
+        # Historial requests. (OrderID, Exchange, Instmt) is the key, while the request is the value
+        self.__historical_requests = {}
         # Execution report cache. (OrderID, Exchange, Instmt) is the key, while the latest execution report
         # is the value
-        self.__historical_requests = {}
         self.__execution_report_cache = {}
+
+    def __del__(self):
+        """
+        Destructor
+        """
+        if self.__output_path != '':
+            file = open(os.path.join(self.__output_path, 'historical_requests_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
+                        'w+')
+            for key in sorted(self.__historical_requests.keys()):
+                file.write('%s,%s\n' % (key, fixmsg2dict(self.__historical_requests[key][-1])))
+            file.close()
+
+            file = open(os.path.join(self.__output_path, 'execution_report_cache_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
+                        'w+')
+            for key in sorted(self.__execution_report_cache.keys()):
+                file.write('%s,%s\n' % (key, fixmsg2dict(self.__execution_report_cache[key][-1])))
+            file.close()
 
     def connect(self, **kwargs):
         """
         Connect to the database
         :param kwargs: Arguments
         """
-        pass
+        self.__output_path = kwargs.setdefault('path', '')
+        if not os.path.isdir(self.__output_path):
+            prev_path = self.__output_path
+            self.__output_path = ''
+            assert False, "Invalid output path (%s)" % prev_path
 
     def update(self, request, response: Union[Fix.Messages.ExecutionReport, Fix.Messages.OrderCancelReject]):
         """

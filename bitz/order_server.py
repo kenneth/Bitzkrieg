@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import Logger
-from bitz.journal_db import AbstractJournalDatabase
+from bitz.journal_database import AbstractJournalDatabase
 from bitz.realtime_database import AbstractRealtimeDatabase
 from bitz.risk_manager import RiskManager
 from bitz.market_data_feed import MarketDataFeed
@@ -48,6 +48,13 @@ class OrderServer:
         self.exchanges = {}
         self.current_exec_id = 0
         self.market_data_feed = market_data_feed
+
+    def __del__(self):
+        """
+        Destructor
+        """
+        if self.market_data_feed is not None:
+            self.market_data_feed.disconnect()
 
     def now(self):
         """
@@ -188,6 +195,14 @@ class OrderServer:
             key = message.ExecID.value
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             key = message.PosReqID.value
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+            key = message.OrdStatusReqID.value
+        elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
+            key = message.PosReqID.value
+        else:
+            raise NotImplementedError("MsgType (%s) has not yet been implemented." % msgType)
+
+        assert key is not None, "MsgType (%s) has an empty key.\n%s" % (msgType, fixmsg2dict(message))
 
         return self.journal_db.insert(key, fixmsg2dict(message))
 
