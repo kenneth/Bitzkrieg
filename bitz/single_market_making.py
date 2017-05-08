@@ -93,6 +93,7 @@ class SingleMarketMaking(RealTimeStrategy):
         order_cancel.Instrument.Symbol.value = last_status.Instrument.Symbol.value
         order_cancel.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
         order_cancel.Side.value = last_status.Side.value
+        order_cancel.OrderQtyData.OrderQty.value = last_status.OrderQtyData.OrderQty.value
 
 
     def __init_new_order_single(self, new_order_single: Fix.Messages.NewOrderSingle, price, qty):
@@ -155,6 +156,9 @@ class SingleMarketMaking(RealTimeStrategy):
         :return: Tur if passed
         """
         target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
+        if market_price is None:
+            return False
+
         if order.Side.value == Fix.Tags.Side.Values.BUY:
             market_bid = market_price - self.profit_margin_fiat_currency
             market_bid = int(market_bid / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size

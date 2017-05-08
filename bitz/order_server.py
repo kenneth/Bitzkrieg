@@ -255,11 +255,6 @@ class OrderServer:
         """
         msgType = message.MsgType
 
-        # Update risk exposure
-        exchange = message.Instrument.SecurityExchange.value
-        exchange_risk = self.risk_manager.get_exchange_balance(exchange)
-        RiskManager.update_risk_exposure_by_message(message, exchange_risk)
-
         # Check the message type
         if msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
             if message.OrdStatus.value in [Fix.Tags.OrdStatus.Values.CANCELED,
@@ -272,12 +267,19 @@ class OrderServer:
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
 
+        # Update risk exposure
+        exchange = message.Instrument.SecurityExchange.value
+        exchange_risk = self.risk_manager.get_exchange_balance(exchange)
+        RiskManager.update_risk_exposure_by_message(message, exchange_risk)
+
     def __supply_information_if_missing(self, req, message: Fix.Messages.ExecutionReport):
         """
         Supply the order information, e.g. orderqty and cumqty, if missing
         :param message: Message
         """
         latest_status = self.realtime_db.get_latest_by_order_id(req)
+        if message.Side.value is None:
+            message.Side.value = latest_status.Side.value
         if message.Price.value is None:
             message.Price.value = latest_status.Price.value
         if message.OrderQtyData.OrderQty.value is None:
