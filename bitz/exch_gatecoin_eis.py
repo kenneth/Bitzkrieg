@@ -5,6 +5,7 @@ from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.logger import ConsoleLogger
 from bitz.util import update_fixtime
 from datetime import datetime
+from uuid import uuid4 as uuid
 import argparse
 import json
 import sys
@@ -16,6 +17,10 @@ class ExchGatecoinEis(Exchange):
     def __init__(self, eig):
         Exchange.__init__(self, 'Gatecoin')
         self.eig = eig
+
+    @staticmethod
+    def __create_unique_id():
+        return datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f") + '-' + str(uuid())
 
     def generate_execution_report(self):
         """
@@ -38,11 +43,21 @@ class ExchGatecoinEis(Exchange):
             response = self.request_new_order_single(req)
 
             fix_response = self.generate_execution_report()
+            fix_response.Instrument.Symbol.value = req.Instrument.Symbol.value
+            fix_response.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
             if self.eig.check_success(response):
                 fix_response.OrderID.value = response['clOrderId']
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.NEW
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
+                fix_response.OrderQtyData.OrderQty.value = req.OrderQtyData.OrderQty.value
+                fix_response.Side.value = req.Side.value
+                fix_response.Price.value = req.Price.value
+                fix_response.ClOrdID.value = req.ClOrdID.value
+                fix_response.OrdType.value = req.OrdType.value
+                fix_response.CumQty.value = 0
+                fix_response.LeavesQty.value = fix_response.OrderQtyData.OrderQty.value
             else:
+                fix_response.ClOrdID.value = req.ClOrdID.value
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.REJECTED
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
                 fix_response.OrdRejReason.value = Fix.Tags.OrdRejReason.Values.OTHER
@@ -67,12 +82,17 @@ class ExchGatecoinEis(Exchange):
 
             if self.eig.check_success(response):
                 fix_response = self.generate_execution_report()
+                fix_response.Instrument.Symbol.value = req.Instrument.Symbol.value
+                fix_response.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
                 fix_response.ClOrdID.value = req.ClOrdID.value
                 fix_response.OrderID.value = req.OrderID.value
                 fix_response.ExecType.value = Fix.Tags.ExecType.Values.CANCELED
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.CANCELED
+                fix_response.LeavesQty.value = 0
             else:
                 fix_response = Fix.Messages.OrderCancelReject()
+                fix_response.Instrument.Symbol.value = req.Instrument.Symbol.value
+                fix_response.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
                 fix_response.ClOrdID.value = req.ClOrdID.value
                 fix_response.OrderID.value = req.OrderID.value
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
@@ -92,14 +112,21 @@ class ExchGatecoinEis(Exchange):
             response = self.request_order_mass_status_request(req)
 
             if self.eig.check_success(response):
-                fix_responses = self.parse_orders_get_result(response)
+                fix_responses = self.parse_orders_get_result(req, response)
+            else:
+                err_msg = self.get_failed_msg(response)
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+            response = self.request_order_status_request(req)
+
+            if self.eig.check_success(response):
+                fix_responses = self.parse_orders_get_result(req, response)
             else:
                 err_msg = self.get_failed_msg(response)
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             response = self.request_positions(req)
 
             if self.eig.check_success(response):
-                fix_response = self.parse_balances_result(response)
+                fix_response = self.parse_balances_result(req, response)
                 fix_responses.append(fix_response)
             else:
                 assert False, "Not yet implemented %s" % msgType
@@ -179,50 +206,66 @@ class ExchGatecoinEis(Exchange):
 
         return self.eig.send_request("Trade/Orders", "GET")
 
-    def parse_orders_get_result(self, response):
+    def request_order_status_request(self, req):
+        """
+        Send order status request
+        :param req: Request
+        :return: Exchange response
+        """
+        assert req.MsgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST, \
+            "Order request is not ORDERSTATUSREQUEST"
+
+        param = { "clOrderId" : req.OrderID.value }
+        return self.eig.send_request("Trade/Orders/%s" % req.OrderID.value, "GET", param)
+
+    def parse_orders_get_result(self, req, response):
         """
         Parsing "GET Trade/Orders" response
         :param response Response from exchange
         :result Fix message
+
         """
-        assert "orders" in response.keys()
-        orders = response["orders"]
+        assert "orders" in response.keys() or "order" in response.keys()
+        orders = response["orders"] if "orders" in response.keys() else [response["order"]]
         fix_messages = []
         for order in orders:
             leavesQty = order["remainingQuantity"]
-            if leavesQty > 0:
-                code = order["code"]
-                orderID = order["clOrderId"]
-                side = order["side"]
-                orderQty = order["initialQuantity"]
-                ordStatus = order["status"]
-                ordType = order["type"]
-                price = order["price"]
-                fix_message = self.generate_execution_report()
-                fix_message.Instrument.Symbol.value = code
-                fix_message.OrderID.value = orderID
-                fix_message.Side.value = Fix.Tags.Side.Values.BUY if side == "0" \
-                                        else Fix.Tags.Side.Values.SELL
-                fix_message.OrderQtyData.OrderQty.value = orderQty
-                fix_message.LeavesQty.value = leavesQty
-                fix_message.CumQty.value = orderQty - leavesQty
-                fix_message.AvgPx = fix_message.Price.value
-                if ordStatus == 1:
-                    fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
-                else:
-                    fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED if leavesQty == 0 \
-                                                    else Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
-                fix_message.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS;
-                fix_message.OrdType.value = Fix.Tags.OrdType.Values.MARKET if ordType == 1 \
-                                            else Fix.Tags.OrdType.Values.LIMIT
-                if fix_message.OrdType.value != Fix.Tags.OrdType.Values.MARKET:
-                    fix_message.Price.value = price
+            orderID = order["clOrderId"]
+            side = order["side"]
+            orderQty = order["initialQuantity"]
+            ordStatus = order["status"]
+            ordType = order["type"]
+            price = order["price"]
+            fix_message = self.generate_execution_report()
+            fix_message.Instrument.Symbol.value = req.Instrument.Symbol.value
+            fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
+            fix_message.OrderID.value = orderID
+            fix_message.Side.value = Fix.Tags.Side.Values.BUY if side == 0 \
+                                    else Fix.Tags.Side.Values.SELL
+            fix_message.OrderQtyData.OrderQty.value = orderQty
+            fix_message.LeavesQty.value = leavesQty
+            fix_message.CumQty.value = orderQty - leavesQty
+            fix_message.Price.value = price
+            if ordStatus == 1:
+                fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.NEW
+            elif ordStatus == 6:
+                fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
+                fix_message.AvgPx.value = fix_message.Price.value
+            else:
+                fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED if leavesQty == 0 \
+                                                else Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED
+                fix_message.AvgPx.value = fix_message.Price.value
+            fix_message.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS;
+            fix_message.OrdType.value = Fix.Tags.OrdType.Values.MARKET if ordType == 1 \
+                                        else Fix.Tags.OrdType.Values.LIMIT
+            if fix_message.OrdType.value != Fix.Tags.OrdType.Values.MARKET:
+                fix_message.Price.value = price
 
-                fix_messages.append(fix_message)
+            fix_messages.append(fix_message)
 
         return fix_messages
 
-    def parse_balances_result(self, balances):
+    def parse_balances_result(self, req, balances):
         """
         Parsing "GET Balance/Balances" response
         :param response Response from exchange
@@ -231,6 +274,8 @@ class ExchGatecoinEis(Exchange):
         assert "balances" in balances.keys()
         balances = balances["balances"]
         fix_message = Fix.Messages.PositionReport()
+        fix_message.PosReqID.value = req.PosReqID.value
+        fix_message.PosMaintRptID.value = ExchGatecoinEis.__create_unique_id()
         fix_message.Instrument.SecurityExchange.value = self.get_name()
         fix_message.ClearingBusinessDate.value = datetime.utcnow().strftime("%Y%m%d")
         for balance in balances:

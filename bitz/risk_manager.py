@@ -104,6 +104,8 @@ class RiskManager(object):
                 "No currency %s is defined in strategy %s" % (digital_currency, strategy.get_name())
         assert fiat_currency in self.__strategies[strategy].keys(), \
             "No currency %s is defined in strategy %s" % (fiat_currency, strategy.get_name())
+        assert strategy.get_max_fiat_currency_risk() is not None, \
+            "Strategy (%s) has not set the maximum fiat currency risk." % strategy.get_name()
         if message.Side.value == Fix.Tags.Side.Values.BUY:
             exch_fiat_available = self.__exchanges[exchange][fiat_currency].available_balance
             strategy_fiat_available = self.__strategies[strategy][fiat_currency].available_balance

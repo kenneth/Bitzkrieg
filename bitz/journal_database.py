@@ -1,6 +1,7 @@
 #!/bin/python
 from datetime import datetime
 import os
+import json
 
 
 class AbstractJournalDatabase(object):
@@ -54,10 +55,10 @@ class InternalJournalDatabase(AbstractJournalDatabase):
         :return:
         """
         if self.__output_path != '':
+            datetime_handler = lambda obj: obj.isoformat() if hasattr(obj, 'isoformat') else obj
             name = os.path.join(self.__output_path, 'journal_db_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S'))
             file = open(name, 'w+')
-            for key in sorted(self.__journal.keys()):
-                file.write("%s,%s\n" % (key, self.__journal[key]))
+            file.write(json.dumps(self.__journal, indent=0, default=datetime_handler))
             file.close()
 
     def connect(self, **kwargs):
@@ -77,6 +78,7 @@ class InternalJournalDatabase(AbstractJournalDatabase):
         :param key: Key
         :param value: Value
         """
+        assert key not in self.__journal.keys(), "Duplicated key %s" % key
         self.__journal[key] = value
         return True
 

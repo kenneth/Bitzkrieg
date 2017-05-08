@@ -1,13 +1,12 @@
 #!/usr/bin/python3
 from bitz.realtime_strategy import RealTimeStrategy
-from bitz.factory import Factory
 from bitz.market_data import Snapshot
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-import bitz.instrument as instrument
 from bitz.util import update_fixtime, fixmsg2dict
-from datetime import datetime, timedelta
+from bitz.instrument import Instrument
 from uuid import uuid4 as uuid
-from typing import Tuple
+from typing import Tuple, List
+
 from json import dumps
 import signal
 import argparse
@@ -23,18 +22,42 @@ class SingleMarketMaking(RealTimeStrategy):
     """
     Single market marking
     """
-    def __init__(self, name: str, ordsvr, logger, fiat_size=50):
+    class CancelReason:
+        NONE = 0
+        NOT_AT_THE_BEST_PRICE = 1
+        STALLED_FOR_LONG = 2
+        PROGRAM_EXIT = 3
+
+    def __init__(self, name: str, ordsvr, logger, target_instmt: Instrument, referenced_instmt: List[Instrument]):
         """
         Constructor
         """
-        RealTimeStrategy.__init__(self, name, ordsvr, logger, fiat_size)
-        self.target_instmt = instrument.Gatecoin_BTCHKD
-        self.referenced_instmts = [instrument.Quoine_BTCUSD]
+        RealTimeStrategy.__init__(self, name, ordsvr, logger)
+        self.target_instmt = target_instmt
+        self.referenced_instmts = referenced_instmt
         self.profit_margin_fiat_currency = 100          # Profit margin between the best price and the market price
         self.aggressiveness = 1                         # Number of ticks place above the best price
-        self.fiat_size = fiat_size
         self.rejected_request = 0
         self.max_rejected_request = 10
+        self.market_data_stalled_time_sec = 30 * 60
+        self.max_fiat_currency_risk = 50
+
+    def init_parameters(self, **kwargs):
+        """
+        Initialize parameters
+        :param kwargs: Parameters
+        """
+        if 'profit_margin_fiat_currency' in kwargs.keys():
+            self.profit_margin_fiat_currency = kwargs['profit_margin_fiat_currency']
+        if 'aggressiveness' in kwargs.keys():
+            self.aggressiveness = kwargs['aggressiveness']
+        if 'max_rejected_request' in kwargs.keys():
+            self.max_rejected_request = kwargs['max_rejected_request']
+        if 'market_data_stalled_time_sec' in kwargs.keys():
+            self.market_data_stalled_time_sec = kwargs['market_data_stalled_time_sec']
+        if 'max_fiat_currency_risk' in kwargs.keys():
+            self.max_fiat_currency_risk = kwargs['max_fiat_currency_risk']
+
 
     def __create_request_id(self):
         """
@@ -110,8 +133,8 @@ class SingleMarketMaking(RealTimeStrategy):
                 ask = snapshot.order_book.a1
 
                 if bid > 0 and ask > 0:
-                    bid *= self.target_instmt.fiat_rate
-                    ask *= self.target_instmt.fiat_rate
+                    bid *= self.target_instmt.usd_rate
+                    ask *= self.target_instmt.usd_rate
 
                     best_bid = min(bid, best_bid)
                     best_ask = max(ask, best_ask)
@@ -134,10 +157,10 @@ class SingleMarketMaking(RealTimeStrategy):
         target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
         if order.Side.value == Fix.Tags.Side.Values.BUY:
             market_bid = market_price - self.profit_margin_fiat_currency
-            market_bid = int(market_bid / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
-            if market_bid >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.tick_size:
-                price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.tick_size
-                qty = int(self.fiat_size / price / 0.0001 + 0.5) * 0.0001
+            market_bid = int(market_bid / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
+            if market_bid >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size:
+                price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
+                qty = int(self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
                 self.__init_new_order_single(order, price, qty)
                 return True
             else:
@@ -145,10 +168,10 @@ class SingleMarketMaking(RealTimeStrategy):
         elif order.Side.value == Fix.Tags.Side.Values.SELL:
             market_ask = market_price + self.profit_margin_fiat_currency
             # Rounding
-            market_ask = int(market_ask / self.target_instmt.tick_size + 0.5) * self.target_instmt.tick_size
-            if market_ask <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.tick_size:
-                price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.tick_size
-                qty = int( self.fiat_size / price / 0.0001 + 0.5) * 0.0001
+            market_ask = int(market_ask / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
+            if market_ask <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size:
+                price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
+                qty = int( self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
                 self.__init_new_order_single(order, price, qty)
                 return True
             else:
@@ -175,14 +198,18 @@ class SingleMarketMaking(RealTimeStrategy):
 
         self.logger.info(self.__class__.__name__, "Start monitoring the market...")
 
-        while self.running:
-            snapshot = self.ordsvr.get_latest_snapshot(0)
+        while True:
+            snapshot = self.ordsvr.get_latest_snapshot(200000)
+
+            # No open order and signaled to exit
+            if open_order is None and not self.running:
+                break
 
             # Flow back to the beginning of the loop if no snapshot is updated
             if snapshot is None:
                 self.running = False
-                continue
-            elif snapshot == Snapshot.UpdateType.NONE:
+                break
+            elif snapshot == Snapshot.UpdateType.NONE and open_order is None:
                 continue
 
             # Update target snapshot
@@ -190,6 +217,10 @@ class SingleMarketMaking(RealTimeStrategy):
                 target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
                 if target_snapshot is None:
                     continue
+                else:
+                    self.logger.info(self.__class__.__name__,
+                                     "Target instrument %s/%s has received the first snapshot" % \
+                                     (self.target_instmt.exchange, self.target_instmt.instmt_name))
 
             # Calculate the market price
             # 1. If there is no open orders,
@@ -197,28 +228,39 @@ class SingleMarketMaking(RealTimeStrategy):
             #   b) Check the risk limit to decide which side can be placed
             #   c) Send the order to the order server. If the request succeeds, get the order ack.
             # 2. If there is open orders,
-            #   a) Monitor if the order has been filled by whether the previous depth is same as the current one.
+            #   a) Monitor if the order has been filled by when the previous depth is different from the current one
             #   b) If the market bid/ask is lower/larger than the placed bid/ask price, cancel the order.
             if open_order is not None:
-                if (open_order.Side.value == Fix.Tags.Side.Values.BUY and
-                    (target_snapshot.order_book.b1 != last_target_best_price[0] or
-                     target_snapshot.order_book.bq1 != last_target_best_price[1])) or \
-                   (open_order.Side.value == Fix.Tags.Side.Values.SELL and
-                     (target_snapshot.order_book.a1 != last_target_best_price[0] or
-                      target_snapshot.order_book.aq1 != last_target_best_price[1])):
-                    # Query the order status only when the best price has changed
+                # Query the order status only when the order book has been changed
+                if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+                    if target_snapshot.order_book.b1 != last_target_best_price[0] or  \
+                        target_snapshot.order_book.bq1 != last_target_best_price[1]:
+                        is_query_status = True
+                    else:
+                        is_query_status = False
+                elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+                    if target_snapshot.order_book.a1 != last_target_best_price[0] or \
+                                    target_snapshot.order_book.aq1 != last_target_best_price[1]:
+                        is_query_status = True
+                    else:
+                        is_query_status = False
+                else:
+                    raise NotImplementedError("Side (%s) not yet implemented." % open_order.Side.value)
+
+                # Query the open order status
+                if is_query_status:
                     self.__init_order_status_request(order_status_request, open_order)
                     fix_responses, err_text = self.ordsvr.request(order_status_request)
                     # Assert
                     assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                    status = fix_responses[0]
-                    assert status.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
-                            "Unexpected ExecTYpe value (%s)" % status.ExecType.value
+                    open_order = fix_responses[0]
+                    assert open_order.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
+                            "Unexpected ExecTYpe value (%s)" % open_order.ExecType.value
                     # Check leaves qty
-                    if status.LeavesQty.value == 0:
+                    if open_order.LeavesQty.value == 0:
                         # If the order has been fully filled
                         self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
-                                         (status.CumQty.value, fixmsg2dict(status)))
+                                         (open_order.CumQty.value, fixmsg2dict(open_order)))
                         open_order = None
                         last_target_best_price = (0, 0)
                         continue
@@ -230,17 +272,32 @@ class SingleMarketMaking(RealTimeStrategy):
                         else:
                             raise NotImplementedError("Side (%s) not yet implemented." % open_order.Side.value)
 
-                # When the order has not been filled
+                # Cancel the order if the order is still open and one of the following conditions is fulfilled
+                # 1. Not at the best price
+                # 2. Market status stalled for a while
+                # 3. Program exit
+                cancel_reason = self.CancelReason.NONE
+                # Check condition 1
                 if open_order.Side.value == Fix.Tags.Side.Values.BUY:
-                    is_cancel_order = target_snapshot.order_book.b1 > open_order.Price.value
+                    if target_snapshot.order_book.b1 > open_order.Price.value:
+                        cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
                 elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
-                    is_cancel_order = target_snapshot.order_book.a1 < open_order.Price.value
+                    if target_snapshot.order_book.a1 < open_order.Price.value:
+                        cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
                 else:
                     raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
+                # Check condition 2
+                last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
+                if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
+                    cancel_reason = self.CancelReason.STALLED_FOR_LONG
+                # Check condition 3
+                if not self.running:
+                    cancel_reason = self.CancelReason.PROGRAM_EXIT
 
                 # Cancel the order if the best bid exceeds the placed price
-                if is_cancel_order:
+                if cancel_reason != self.CancelReason.NONE:
                     self.__init_order_cancel_reqeust(order_cancel_request, open_order)
+                    order_cancel_request.Text.value = cancel_reason
                     fix_responses, err_text = self.ordsvr.request(order_cancel_request)
                     assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
                     response = fix_responses[0]
@@ -249,11 +306,11 @@ class SingleMarketMaking(RealTimeStrategy):
                         response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
                         # Order is canceled
                         open_order = None
-                        self.logger.info(self.__class__.__name__, "Cancel is accepted.\n" % fixmsg2dict(response))
+                        self.logger.info(self.__class__.__name__, "Cancel is accepted.\n%s" % fixmsg2dict(response))
                     elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
                         # Order is not canceled
                         self.rejected_request += 1
-                        self.logger.info(self.__class__.__name__, "Cancel is rejected.\n" % fixmsg2dict(response))
+                        self.logger.info(self.__class__.__name__, "Cancel is rejected.\n%s" % fixmsg2dict(response))
             else:
                 market_bid, market_ask = self.__calculate_market_price()
                 if self.__is_place_order(market_bid, buy_order) and \
@@ -285,52 +342,3 @@ class SingleMarketMaking(RealTimeStrategy):
             if self.rejected_request > self.max_rejected_request:
                 self.logger.error(self.__class__.__name__, "Number of rejected request (%d) has already exceeded." % self.rejected_request)
                 break
-
-def get_args():
-    """
-    Get input arguments
-    """
-    parser = argparse.ArgumentParser(description='Single market marking.')
-    parser.add_argument('-config', action='store', dest='config',
-                        help='Configuration file path',
-                        default='')
-    return parser.parse_args()
-
-
-def main():
-    # Get input arguments
-    args = get_args()
-
-    # Create factory
-    factory = Factory(args.config)
-
-    # Logger
-    logger = factory.create_logger()
-
-    # Starting...
-    logger.info('[main]', "Process is starting now...")
-
-    # Initialize objects
-    market_data_feed = factory.create_market_data_feed(logger)
-    journal_db = factory.create_journal_database()
-    realtime_db = factory.create_realtime_database()
-    risk_manager = factory.create_risk_manager()
-    order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed)
-
-    # Register exchange
-    order_server.register_exchange(factory.create_exchange('Gatecoin', market_data_feed=market_data_feed))
-
-    # Initialize exchange risk
-    order_server.initialize_exchange_risk()
-
-    # Strategy initialization
-    smm = SingleMarketMaking('SingleMarketMaking', order_server, logger)
-    signal.signal(signal.SIGINT, smm.handle_signal)
-    signal.signal(signal.SIGTERM, smm.handle_signal)
-    smm.monitor()
-
-    # Starting...
-    logger.info('[main]', "Process has ended.")
-
-if __name__ == '__main__':
-    main()

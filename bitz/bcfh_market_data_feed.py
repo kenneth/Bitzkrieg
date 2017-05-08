@@ -33,6 +33,13 @@ class BcfhMarketDataFeed(MarketDataFeed):
         self.poller = zmq.Poller()
         self.poller.register(self.feed, zmq.POLLIN)
 
+    def disconnect(self, **kwargs):
+        """
+        Disconnect to the market data feed
+        """
+        pass
+
+
     def get_snapshot(self, timeout=100):
         """
         Get snapshot
@@ -110,7 +117,7 @@ class BcfhMarketDataFeed(MarketDataFeed):
         :param format: Time format
         :return: Current datetime in string
         """
-        raise datetime.utcnow()
+        return datetime.utcnow().strftime(format)
 
 if __name__ == '__main__':
     addr = 'tcp://103.253.147.49:6001'

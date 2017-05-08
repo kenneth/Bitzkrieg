@@ -61,13 +61,13 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             file = open(os.path.join(self.__output_path, 'historical_requests_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
                         'w+')
             for key in sorted(self.__historical_requests.keys()):
-                file.write('%s,%s\n' % (key, fixmsg2dict(self.__historical_requests[key][-1])))
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self.__historical_requests[key][-1])))
             file.close()
 
             file = open(os.path.join(self.__output_path, 'execution_report_cache_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
                         'w+')
             for key in sorted(self.__execution_report_cache.keys()):
-                file.write('%s,%s\n' % (key, fixmsg2dict(self.__execution_report_cache[key][-1])))
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self.__execution_report_cache[key][-1])))
             file.close()
 
     def connect(self, **kwargs):

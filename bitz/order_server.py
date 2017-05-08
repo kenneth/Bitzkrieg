@@ -152,7 +152,7 @@ class OrderServer:
         """
         for exchange_name, exchange in self.exchanges.items():
             req = Fix.Messages.RequestForPositions()
-            req.PosReqID.value = exchange_name + self.now_string()
+            req.PosReqID.value = self.now_string() + str(uuid())
             req.Instrument.SecurityExchange.value = exchange_name
             update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now())
             responses, err_msg = self.request(req)
@@ -198,7 +198,7 @@ class OrderServer:
         elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
             key = message.OrdStatusReqID.value
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
-            key = message.PosReqID.value
+            key = message.PosMaintRptID.value
         else:
             raise NotImplementedError("MsgType (%s) has not yet been implemented." % msgType)
 
@@ -262,10 +262,32 @@ class OrderServer:
 
         # Check the message type
         if msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
+            if message.OrdStatus.value in [Fix.Tags.OrdStatus.Values.CANCELED,
+                                           Fix.Tags.OrdStatus.Values.FILLED,
+                                           Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED]:
+                self.__supply_information_if_missing(request, message)
             self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
             pass
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
+
+    def __supply_information_if_missing(self, req, message: Fix.Messages.ExecutionReport):
+        """
+        Supply the order information, e.g. orderqty and cumqty, if missing
+        :param message: Message
+        """
+        latest_status = self.realtime_db.get_latest_by_order_id(req)
+        if message.Price.value is None:
+            message.Price.value = latest_status.Price.value
+        if message.OrderQtyData.OrderQty.value is None:
+            message.OrderQtyData.OrderQty.value = latest_status.OrderQtyData.OrderQty.value
+        if message.CumQty.value is None:
+            message.CumQty.value = latest_status.CumQty.value
+        if message.AvgPx.value is None:
+            message.AvgPx.value = latest_status.AvgPx.value
+        if message.LeavesQty.value is None:
+            message.LeavesQty.value = latest_status.LeavesQty.value
+
 
 

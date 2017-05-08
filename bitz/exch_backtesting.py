@@ -3,6 +3,7 @@ from bitz.exchange import Exchange
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.util import update_fixtime
 from copy import deepcopy
+from uuid import uuid4 as uuid
 
 class ExchBacktesting(Exchange):
     """
@@ -87,6 +88,7 @@ class ExchBacktesting(Exchange):
             if order_id in self.__open_positions.keys():
                 last_order_update = deepcopy(self.__open_positions[order_id][-1])
                 last_order_update.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+                last_order_update.ExecID.value = self.__market_data_feed.now_string() + str(uuid())
                 fix_responses.append(last_order_update)
             else:
                 raise NotImplementedError("Reject not found order id" % order_id)
@@ -250,6 +252,7 @@ class ExchBacktesting(Exchange):
         fix_message.PosReqID.value = req.PosReqID.value
         fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
         fix_message.ClearingBusinessDate.value = self.__market_data_feed.now().strftime("%Y%m%d")
+        fix_message.PosMaintRptID.value = self.__market_data_feed.now_string() + str(uuid())
         
         for currency, total_balance, available_balance in \
             [('USD', 2000, 2000),
