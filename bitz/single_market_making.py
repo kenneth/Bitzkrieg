@@ -167,7 +167,8 @@ class SingleMarketMaking(RealTimeStrategy):
         if order.Side.value == Fix.Tags.Side.Values.BUY:
             market_bid = market_price - self.profit_margin_fiat_currency
             market_bid = int(market_bid / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
-            if market_bid >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size:
+            if market_bid >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size and \
+                target_snapshot.order_book.b1 > 0:
                 price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
                 qty = int(self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
                 self.__init_new_order_single(order, price, qty)
@@ -178,7 +179,8 @@ class SingleMarketMaking(RealTimeStrategy):
             market_ask = market_price + self.profit_margin_fiat_currency
             # Rounding
             market_ask = int(market_ask / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
-            if market_ask <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size:
+            if market_ask <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size and \
+                market_ask > 0:
                 price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
                 qty = int( self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
                 self.__init_new_order_single(order, price, qty)
