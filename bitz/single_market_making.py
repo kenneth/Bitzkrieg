@@ -27,6 +27,7 @@ class SingleMarketMaking(RealTimeStrategy):
         NOT_AT_THE_BEST_PRICE = 1
         STALLED_FOR_LONG = 2
         PROGRAM_EXIT = 3
+        SEEKING_FOR_A_BETTER_PRICE = 4
 
     def __init__(self, name: str, ordsvr, logger, target_instmt: Instrument, referenced_instmt: List[Instrument]):
         """
@@ -159,6 +160,10 @@ class SingleMarketMaking(RealTimeStrategy):
         if market_price is None:
             return False
 
+        last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
+        if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
+            return False
+
         if order.Side.value == Fix.Tags.Side.Values.BUY:
             market_bid = market_price - self.profit_margin_fiat_currency
             market_bid = int(market_bid / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
@@ -182,6 +187,44 @@ class SingleMarketMaking(RealTimeStrategy):
                 return False
         else:
             raise NotImplementedError("Side %s not yet implemented." % order.Side.value)
+
+    def __check_cancel_condition(self, open_order, target_snapshot):
+        """
+        Check cancel condition
+        :return: Cancel condition
+        """
+
+        cancel_reason = self.CancelReason.NONE
+        # Check condition 1
+        if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+            if target_snapshot.order_book.b1 > open_order.Price.value:
+                cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
+        elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+            if target_snapshot.order_book.a1 < open_order.Price.value:
+                cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
+        else:
+            raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
+        # Check condition 2
+        last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
+        if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
+            cancel_reason = self.CancelReason.STALLED_FOR_LONG
+
+        # Check condition 3
+        if not self.running:
+            cancel_reason = self.CancelReason.PROGRAM_EXIT
+
+        # Check condition 4
+        market_bid, market_ask = self.__calculate_market_price()
+        if open_order.Side.value == Fix.Tags.Side.Values.BUY:
+            if market_bid > target_snapshot.order_book.b2 and market_bid < open_order.Price.value:
+                cancel_reason = self.CancelReason.SEEKING_FOR_A_BETTER_PRICE
+        elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
+            if market_ask < target_snapshot.order_book.a2 and market_bid > open_order.Price.value:
+                cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
+        else:
+            raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
+
+        return cancel_reason
 
     def monitor(self):
         """
@@ -280,23 +323,8 @@ class SingleMarketMaking(RealTimeStrategy):
                 # 1. Not at the best price
                 # 2. Market status stalled for a while
                 # 3. Program exit
-                cancel_reason = self.CancelReason.NONE
-                # Check condition 1
-                if open_order.Side.value == Fix.Tags.Side.Values.BUY:
-                    if target_snapshot.order_book.b1 > open_order.Price.value:
-                        cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
-                elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
-                    if target_snapshot.order_book.a1 < open_order.Price.value:
-                        cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
-                else:
-                    raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
-                # Check condition 2
-                last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
-                if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
-                    cancel_reason = self.CancelReason.STALLED_FOR_LONG
-                # Check condition 3
-                if not self.running:
-                    cancel_reason = self.CancelReason.PROGRAM_EXIT
+                # 4. Too far from the second best price
+                cancel_reason = self.__check_cancel_condition(open_order, target_snapshot)
 
                 # Cancel the order if the best bid exceeds the placed price
                 if cancel_reason != self.CancelReason.NONE:
@@ -346,3 +374,5 @@ class SingleMarketMaking(RealTimeStrategy):
             if self.rejected_request > self.max_rejected_request:
                 self.logger.error(self.__class__.__name__, "Number of rejected request (%d) has already exceeded." % self.rejected_request)
                 break
+
+        self.logger.info(self.__class__.__name__, "Single market making strategy (%s) has ended." % self.get_name())
