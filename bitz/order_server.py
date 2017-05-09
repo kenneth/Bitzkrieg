@@ -187,8 +187,9 @@ class OrderServer:
         msgType = message.MsgType
         if msgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE or \
             msgType == Fix.Tags.MsgType.Values.ORDERCANCELREQUEST or \
-            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST:
-            key = message.ClOrdID.value
+            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST or \
+            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+                key = message.ClOrdID.value
         elif msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
             if message.ExecID.value is None:
                 message.ExecID.value = '%s%s' % (self.now_string(), uuid())
@@ -264,13 +265,16 @@ class OrderServer:
             self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
             pass
+        elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+            pass
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
 
         # Update risk exposure
-        exchange = message.Instrument.SecurityExchange.value
-        exchange_risk = self.risk_manager.get_exchange_balance(exchange)
-        RiskManager.update_risk_exposure_by_message(message, exchange_risk)
+        if msgType not in [Fix.Tags.MsgType.Values.ORDERCANCELREJECT]:
+            exchange = message.Instrument.SecurityExchange.value
+            exchange_risk = self.risk_manager.get_exchange_balance(exchange)
+            RiskManager.update_risk_exposure_by_message(message, exchange_risk)
 
     def __supply_information_if_missing(self, req, message: Fix.Messages.ExecutionReport):
         """

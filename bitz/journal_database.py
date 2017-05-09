@@ -58,7 +58,7 @@ class InternalJournalDatabase(AbstractJournalDatabase):
             datetime_handler = lambda obj: obj.isoformat() if hasattr(obj, 'isoformat') else obj
             name = os.path.join(self.__output_path, 'journal_db_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S'))
             file = open(name, 'w+')
-            file.write(json.dumps(self.__journal, indent=0, default=datetime_handler))
+            file.write(json.dumps(self.__journal, indent=2, default=datetime_handler))
             file.close()
 
     def connect(self, **kwargs):

@@ -22,14 +22,21 @@ def fixmsg2dict(msg):
         ret = []
         for group in msg.groups:
             ret.append(fixmsg2dict(group))
-            
-        return ret
+
+        if len(ret) > 0:
+            return ret
+        else:
+            return None
     elif isinstance(msg, Message) or isinstance(msg, Component) or isinstance(msg, Fix.Header):
         ret = {}
         for name, attr in msg.__dict__.items():
-            ret[name] = fixmsg2dict(attr)
-            
-        return ret
+            value = fixmsg2dict(attr)
+            if value is not None:
+                ret[name] = value
+        if len(ret) > 0:
+            return ret
+        else:
+            return None
     elif isinstance(msg, Tag):
         return msg.value
     elif isinstance(msg, bool):

@@ -91,8 +91,6 @@ class ExchGatecoinEis(Exchange):
                 fix_response.LeavesQty.value = 0
             else:
                 fix_response = Fix.Messages.OrderCancelReject()
-                fix_response.Instrument.Symbol.value = req.Instrument.Symbol.value
-                fix_response.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
                 fix_response.ClOrdID.value = req.ClOrdID.value
                 fix_response.OrderID.value = req.OrderID.value
                 fix_response.OrdStatus.value = Fix.Tags.OrdStatus.Values.REJECTED
