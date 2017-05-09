@@ -187,13 +187,14 @@ class OrderServer:
         msgType = message.MsgType
         if msgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE or \
             msgType == Fix.Tags.MsgType.Values.ORDERCANCELREQUEST or \
-            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST or \
-            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
-                key = message.ClOrdID.value
+            msgType == Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST:
+            key = message.ClOrdID.value
         elif msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
             if message.ExecID.value is None:
                 message.ExecID.value = '%s%s' % (self.now_string(), uuid())
             key = message.ExecID.value
+        elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+            key = message.ClOrdID.value + self.now_string()
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             key = message.PosReqID.value
         elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
@@ -262,11 +263,12 @@ class OrderServer:
                                            Fix.Tags.OrdStatus.Values.FILLED,
                                            Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED]:
                 self.__supply_information_if_missing(request, message)
+            self.__supply_transacttime_if_missing(message)
             self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
             pass
         elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
-            pass
+            self.__supply_transacttime_if_missing(message)
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
 
@@ -282,18 +284,26 @@ class OrderServer:
         :param message: Message
         """
         latest_status = self.realtime_db.get_latest_by_order_id(req)
-        if message.Side.value is None:
-            message.Side.value = latest_status.Side.value
-        if message.Price.value is None:
-            message.Price.value = latest_status.Price.value
-        if message.OrderQtyData.OrderQty.value is None:
-            message.OrderQtyData.OrderQty.value = latest_status.OrderQtyData.OrderQty.value
-        if message.CumQty.value is None:
-            message.CumQty.value = latest_status.CumQty.value
-        if message.AvgPx.value is None:
-            message.AvgPx.value = latest_status.AvgPx.value
-        if message.LeavesQty.value is None:
-            message.LeavesQty.value = latest_status.LeavesQty.value
+        if latest_status is not None:
+            if message.Side.value is None:
+                message.Side.value = latest_status.Side.value
+            if message.Price.value is None:
+                message.Price.value = latest_status.Price.value
+            if message.OrderQtyData.OrderQty.value is None:
+                message.OrderQtyData.OrderQty.value = latest_status.OrderQtyData.OrderQty.value
+            if message.CumQty.value is None:
+                message.CumQty.value = latest_status.CumQty.value
+            if message.AvgPx.value is None:
+                message.AvgPx.value = latest_status.AvgPx.value
+            if message.LeavesQty.value is None:
+                message.LeavesQty.value = latest_status.LeavesQty.value
 
+    def __supply_transacttime_if_missing(self, message):
+        """
+        Supply the tag 60 if missing
+        :param message: Message
+        """
+        if message.TransactTime.value is None:
+            message.TransactTime.value = self.now()
 
 

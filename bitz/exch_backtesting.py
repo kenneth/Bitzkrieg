@@ -80,6 +80,8 @@ class ExchBacktesting(Exchange):
             update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, self.__market_data_feed.now())
             # Ready to send
             fix_responses.append(fix_response)
+            # Update the open positions
+            self.__open_positions[req.OrderID.value].append(fix_response)
 
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
             raise NotImplementedError("ORDERMASSSTATUSREQUEST")
