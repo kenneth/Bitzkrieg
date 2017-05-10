@@ -67,8 +67,8 @@ class ExchGatecoinEis(Exchange):
                     err_msg = response['responseStatus']['message']
                     err_code = response['responseStatus']['errorCode']
                     fix_response.Text.value = err_msg
-                    if err_code >= 100:
-                        fix_response.OrdRejReason.value = err_code
+                    if int(err_code) >= 100:
+                        fix_response.OrdRejReason.value = int(err_code)
                 else:
                     fix_response.Text.value = "Rejected by the exchange."
 
