@@ -50,7 +50,7 @@ class ExchBacktesting(Exchange):
             #     fix_response.Text.value = "Rejected by the exchange."
 
             # Add TransactTime
-            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, self.__market_data_feed.now())
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now())
             # Ready to send
             fix_responses.append(fix_response)
             self.__open_positions[fix_response.OrderID.value] = [fix_response]
@@ -77,7 +77,7 @@ class ExchBacktesting(Exchange):
             #         fix_response.CxlRejReason.value = response['responseStatus']['errorCode']
 
             # Add TransactTime
-            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, self.__market_data_feed.now())
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now())
             # Ready to send
             fix_responses.append(fix_response)
             # Update the open positions
@@ -114,7 +114,8 @@ class ExchBacktesting(Exchange):
         for order_id, order_updates in self.__open_positions.items():
             last_order_update = order_updates[-1]
             if last_order_update.Instrument.SecurityExchange.value.upper() == exchange and \
-               last_order_update.Instrument.Symbol.value.upper() == instmt:
+               last_order_update.Instrument.Symbol.value.upper() == instmt and \
+               last_order_update.LeavesQty.value > 0:
                 response = None
                 if snapshot.update_type == snapshot.UpdateType.ORDER_BOOK:
                     response = self.__update_last_execution_report_price_update(snapshot, last_order_update)
