@@ -59,15 +59,18 @@ class ExchGatecoinEig(object):
           R = requests.post     
           
         data = json.dumps(params)
-        self.logger.info('OUT', 'url=%s\ndata=%s\nheaders=%s\n' % \
-                                    (url, data, headers))
-        response = R(url, data=data, headers=headers)
-        if response.status_code == 200:
-            response = response.json()
-        else:
-            response = {'failed_code': response.status_code, 'failed_text': response.text}
-        self.logger.info('IN', response)
-        
+        self.logger.info('OUT', 'method=%s\nurl=%s\ndata=%s\nheaders=%s\n' % \
+                                    (httpMethod, url, data, headers))
+        try:
+            response = R(url, data=data, headers=headers)
+            if response.status_code == 200:
+                response = response.json()
+            else:
+                response = {'failed_code': response.status_code, 'failed_text': response.text}
+            self.logger.info('IN', response)
+        except Exception as e:
+            response = { 'failed_code': 999, 'failed_text': str(e)[:100]}
+
         return response
     
     def check_success(self, msg):

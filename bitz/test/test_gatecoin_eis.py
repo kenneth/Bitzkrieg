@@ -5,6 +5,7 @@ from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import ConsoleLogger
 from lightmatchingengine.lightmatchingengine import LightMatchingEngine, Side
 from time import gmtime
+from uuid import uuid4 as uuid
 import unittest
 
 class TClassExchGatecoinEig(ExchGatecoinEig):
@@ -104,7 +105,7 @@ class TestExchGatecoinEis(unittest.TestCase):
         :return Order id
         """
         req = Fix.Messages.NewOrderSingle()
-        req.ClOrdID.value = "%s/%s/%.6f/%.6f" % (symbol, side, price, qty)
+        req.ClOrdID.value = uuid()
         req.Instrument.Symbol.value = symbol
         req.Side.value = side
         req.Price.value = price

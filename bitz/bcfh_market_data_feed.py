@@ -33,6 +33,13 @@ class BcfhMarketDataFeed(MarketDataFeed):
         self.poller = zmq.Poller()
         self.poller.register(self.feed, zmq.POLLIN)
 
+    def disconnect(self, **kwargs):
+        """
+        Disconnect to the market data feed
+        """
+        pass
+
+
     def get_snapshot(self, timeout=100):
         """
         Get snapshot
@@ -49,8 +56,8 @@ class BcfhMarketDataFeed(MarketDataFeed):
         if table_name == 'exchanges_snapshot':
             assert('exchange' in data.keys())
             assert('instmt' in data.keys())
-            exchange = data['exchange']
-            instmt = data['instmt']
+            exchange = data['exchange'].upper()
+            instmt = data['instmt'].upper()
             snapshot = self.snapshots.setdefault((exchange, instmt), Snapshot(exchange, instmt))
             if len(data.keys()) != 28:
                 self.logger.error(self.__class__.__name__, "Invalid data (%s)" % data)
@@ -104,6 +111,13 @@ class BcfhMarketDataFeed(MarketDataFeed):
         """
         return datetime.utcnow()
 
+    def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the current time in string
+        :param format: Time format
+        :return: Current datetime in string
+        """
+        return datetime.utcnow().strftime(format)
 
 if __name__ == '__main__':
     addr = 'tcp://103.253.147.49:6001'

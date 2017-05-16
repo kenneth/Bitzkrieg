@@ -9,3 +9,5 @@ third-party/*
 dump.rdb
 archive/*
 production-config.ini
+.idea/*
+bitz/log/*

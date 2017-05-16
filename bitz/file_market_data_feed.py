@@ -51,8 +51,8 @@ class FileMarketDataFeed(MarketDataFeed):
             :param fname    File name
             """
             self.fhandler = open(fname, "r")
-            self.exchange = fname.split('_')[1]
-            self.instmt_name = fname.split('_')[2]
+            self.exchange = fname.split('_')[1].upper()
+            self.instmt_name = fname.split('_')[2].upper()
             self.fhandler.readline()
             self.curr = []
             self.next = self.fhandler.readline().split(',')
@@ -191,7 +191,7 @@ class FileMarketDataFeed(MarketDataFeed):
         Get snapshot
         """
         # Poll the message
-        if self.__now + timedelta(microseconds=timeout) < self.__next_update_time()[1]:
+        if timeout > 0 and self.__now + timedelta(microseconds=timeout) < self.__next_update_time()[1]:
             self.__now = self.__now + timedelta(microseconds=timeout)
             return Snapshot.UpdateType.NONE
         else:
@@ -211,6 +211,14 @@ class FileMarketDataFeed(MarketDataFeed):
         :return: Current datetime
         """
         return self.__now
+
+    def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
+        """
+        Get the current time in string
+        :param format: Time format
+        :return: Current datetime in string
+        """
+        return self.__now.strftime(format)
 
     def __last_update_time(self):
         """

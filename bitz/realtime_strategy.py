@@ -21,6 +21,7 @@ class RealTimeStrategy:
         self.logger = logger            # Logger
         self.market_data_feed = None    # Market data feed
         self.running = True
+        self.max_fiat_currency_risk = None
 
     def get_name(self):
         """
@@ -63,6 +64,11 @@ class RealTimeStrategy:
         """
         pass
 
+    def get_max_fiat_currency_risk(self):
+        """
+        Get maximum fiat currency risk
+        """
+        return self.max_fiat_currency_risk
 
 
 

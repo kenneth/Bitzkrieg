@@ -25,9 +25,8 @@ setup(
         "License :: The MIT License",
     ],
     entry_points={
-            'console_scripts': ['bitz=bitz.bitz:main',
-                                'gatecoin=bitz.exch_gatecoin_eis:main',
-                                'smm=bitz.single_market_making:main']
+            'console_scripts': ['bitz=bitz.bitzkrieg:main',
+                                'gatecoin=bitz.exch_gatecoin_eis:main']
         },    
     install_requires=[
             'pytest',
@@ -35,6 +34,7 @@ setup(
             'pyzmq',
             'redis',
             'PyJWT',
-            'mock'
+            'mock',
+            'requests'
     ],
 )
