@@ -237,7 +237,8 @@ class ExchGatecoinEis(Exchange):
             fix_message = self.generate_execution_report()
             fix_message.Instrument.Symbol.value = req.Instrument.Symbol.value
             fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
-            fix_message.OrderID.value = orderID
+            fix_message.OrderID.value = req.OrderID.value if req.MsgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST \
+                                        else orderID
             fix_message.Side.value = Fix.Tags.Side.Values.BUY if side == 0 \
                                     else Fix.Tags.Side.Values.SELL
             fix_message.OrderQtyData.OrderQty.value = orderQty
