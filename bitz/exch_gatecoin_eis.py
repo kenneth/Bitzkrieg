@@ -180,7 +180,7 @@ class ExchGatecoinEis(Exchange):
         orderID = req.OrderID.value
         params = { "clOrderId": orderID }
 
-        return self.eig.send_request("Trade/Orders", "DELETE", params)
+        return self.eig.send_request("Trade/Orders/%s" % orderID, "DELETE", params)
 
     def request_positions(self, req):
         """
