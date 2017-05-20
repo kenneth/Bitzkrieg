@@ -1,5 +1,7 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
+from bitz.sql_client import SqliteClient
+from bitz.db_records import ActiveOrders
 from bitz.util import fixmsg2dict
 from typing import Union
 from datetime import datetime
@@ -13,7 +15,11 @@ class AbstractRealtimeDatabase(object):
         """
         Constructor
         """
-        pass
+        # Historial requests. (OrderID, Exchange, Instmt) is the key, while the request is the value
+        self._historical_requests = {}
+        # Execution report cache. (OrderID, Exchange, Instmt) is the key, while the latest execution report
+        # is the value
+        self._execution_report_cache = {}
 
     def connect(self, **kwargs):
         """
@@ -47,11 +53,6 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
         """
         AbstractRealtimeDatabase.__init__(self)
         self.__output_path = ''
-        # Historial requests. (OrderID, Exchange, Instmt) is the key, while the request is the value
-        self.__historical_requests = {}
-        # Execution report cache. (OrderID, Exchange, Instmt) is the key, while the latest execution report
-        # is the value
-        self.__execution_report_cache = {}
 
     def __del__(self):
         """
@@ -60,14 +61,14 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
         if self.__output_path != '':
             file = open(os.path.join(self.__output_path, 'historical_requests_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
                         'w+')
-            for key in sorted(self.__historical_requests.keys()):
-                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self.__historical_requests[key][-1])))
+            for key in sorted(self._historical_requests.keys()):
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._historical_requests[key][-1])))
             file.close()
 
             file = open(os.path.join(self.__output_path, 'execution_report_cache_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
                         'w+')
-            for key in sorted(self.__execution_report_cache.keys()):
-                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self.__execution_report_cache[key][-1])))
+            for key in sorted(self._execution_report_cache.keys()):
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._execution_report_cache[key][-1])))
             file.close()
 
     def connect(self, **kwargs):
@@ -91,8 +92,8 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             exchange = response.Instrument.SecurityExchange.value
             instmt = response.Instrument.Symbol.value
             key = (order_id, exchange, instmt)
-            self.__execution_report_cache.setdefault(key, []).append(response)
-            self.__historical_requests.setdefault(key, []).append(request)
+            self._execution_report_cache.setdefault(key, []).append(response)
+            self._historical_requests.setdefault(key, []).append(request)
         else:
             if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
                 assert response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED, \
@@ -109,11 +110,78 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             exchange = request.Instrument.SecurityExchange.value
             instmt = request.Instrument.Symbol.value
             key = (order_id, exchange, instmt)
-            if key in self.__execution_report_cache.keys():
-                return self.__execution_report_cache[key][-1]
+            if key in self._execution_report_cache.keys():
+                return self._execution_report_cache[key][-1]
             else:
                 return None
         else:
             return None
+
+
+class SqliteRealtimeDatabase(AbstractRealtimeDatabase):
+    """
+    Abstract realtime database
+    """
+    def __init__(self):
+        """
+        Constructor
+        """
+        AbstractRealtimeDatabase.__init__(self)
+        self.__client = SqliteClient()
+
+    def connect(self, **kwargs):
+        """
+        Connect to the database
+        :param kwargs: Arguments
+        """
+        path = kwargs['path']
+        self.__client.connect(path=path)
+        self.__client.create(ActiveOrders)
+
+    def update(self, request, report: Fix.Messages.ExecutionReport):
+        """
+        Update the latest order information
+        :param exe_report: Execution report
+        """
+        active_order = ActiveOrders(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                    exchange=report.Instrument.SecurityExchange.value,
+                                    instmt_name=report.Instrument.Symbol.value,
+                                    orderid=report.OrderID.value,
+                                    price=report.Price.value,
+                                    orderqty=report.OrderQtyData.OrderQty.value,
+                                    cumqty=report.CumQty.value,
+                                    leavesqty=report.LeavesQty.value,
+                                    avgpx=report.AvgPx.value,
+                                    ordstatus=report.OrdStatus.value,
+                                    exectype=report.ExecType.value,
+                                    clordid=report.ClOrdID.value,
+                                    transacttime=report.TransactTime.value)
+
+        self.__client.insert(active_order)
+
+    def get_latest_by_order_id(self, request):
+        """
+        Get the latest execution report by order id
+        :param request: Request
+        :return: Latest execution report. None if not found
+        """
+        order_id = request.OrderID.value
+        if order_id is not None:
+            exchange = request.Instrument.SecurityExchange.value
+            instmt = request.Instrument.Symbol.value
+            key = (order_id, exchange, instmt)
+            if key in self._execution_report_cache.keys():
+                return self._execution_report_cache[key][-1]
+            else:
+                return None
+        else:
+            return None
+
+    def get_database(self):
+        """
+        Get the database
+        :return:
+        """
+        return self.__client
 
 

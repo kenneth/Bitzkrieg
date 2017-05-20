@@ -154,7 +154,7 @@ class OrderServer:
             req = Fix.Messages.RequestForPositions()
             req.PosReqID.value = self.now_string() + str(uuid())
             req.Instrument.SecurityExchange.value = exchange_name
-            update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now())
+            update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now_string())
             responses, err_msg = self.request(req)
             assert err_msg == "", "Error (%s) is found." % err_msg
             assert len(responses) == 1, "Expect to have only one response."
@@ -304,6 +304,6 @@ class OrderServer:
         :param message: Message
         """
         if message.TransactTime.value is None:
-            message.TransactTime.value = self.now()
+            message.TransactTime.value = self.now_string()
 
 

@@ -50,7 +50,7 @@ class ExchBacktesting(Exchange):
             #     fix_response.Text.value = "Rejected by the exchange."
 
             # Add TransactTime
-            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now())
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now_string())
             # Ready to send
             fix_responses.append(fix_response)
             self.__open_positions[fix_response.OrderID.value] = [fix_response]
@@ -77,7 +77,7 @@ class ExchBacktesting(Exchange):
             #         fix_response.CxlRejReason.value = response['responseStatus']['errorCode']
 
             # Add TransactTime
-            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now())
+            update_fixtime(fix_response, Fix.Tags.TransactTime.Tag, now_time=self.__market_data_feed.now_string())
             # Ready to send
             fix_responses.append(fix_response)
             # Update the open positions
@@ -254,7 +254,7 @@ class ExchBacktesting(Exchange):
         fix_message = Fix.Messages.PositionReport()
         fix_message.PosReqID.value = req.PosReqID.value
         fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
-        fix_message.ClearingBusinessDate.value = self.__market_data_feed.now().strftime("%Y%m%d")
+        fix_message.ClearingBusinessDate.value = self.__market_data_feed.now_string("%Y%m%d")
         fix_message.PosMaintRptID.value = self.__market_data_feed.now_string() + str(uuid())
         
         for currency, total_balance, available_balance in \

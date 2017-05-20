@@ -2,14 +2,16 @@
 from bitz.market_data_feed import MarketDataFeed
 from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
 from bitz.file_market_data_feed import FileMarketDataFeed
-from bitz.realtime_database import AbstractRealtimeDatabase, InternalRealtimeDatabase
+from bitz.realtime_database import AbstractRealtimeDatabase, InternalRealtimeDatabase, SqliteRealtimeDatabase
 from bitz.journal_database import AbstractJournalDatabase, InternalJournalDatabase
 from bitz.order_server import OrderServer
 from bitz.logger import Logger, ConsoleLogger
 from bitz.risk_manager import RiskManager
 from bitz.exch_backtesting import ExchBacktesting
 from bitz.instrument import Instrument, InstrumentList
+from datetime import datetime
 import signal
+import os
 
 # Exchanges
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
@@ -54,15 +56,23 @@ class Factory(object):
         Create realtime database
         :return: Realtime database
         """
+        db = None
         section = 'RealtimeDatabase'
         database_type = self.__config.get(section, 'Type')
         if database_type == 'Internal':
             path = self.__config.get(section, 'Path')
             db = InternalRealtimeDatabase()
             db.connect(path=path)
-            return db
+        elif database_type == 'Sqlite':
+            path = self.__config.get(section, 'Path')
+            path = os.path.join(path,
+                                'realtime_db_%s.db' % datetime.utcnow().strftime("%Y%m%d%H%M%S%f"))
+            db = SqliteRealtimeDatabase()
+            db.connect(path=path)
         else:
             raise NotImplementedError("Database type (%s) has not yet been implemented." % database_type)
+
+        return db
 
     def create_journal_database(self) -> AbstractJournalDatabase:
         """

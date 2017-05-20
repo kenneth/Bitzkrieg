@@ -273,7 +273,7 @@ class SingleMarketMaking(RealTimeStrategy):
         new_order_single.Price.value = price
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.ClOrdID.value = self.__create_request_id()
-        new_order_single.TransactTime.value = self.ordsvr.now()
+        new_order_single.TransactTime.value = self.ordsvr.now_string()
 
         # Set triggering quantity. If the price is not with the first 5 price range,
         # set it as 0 for triggering quantity.
