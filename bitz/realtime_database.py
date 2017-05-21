@@ -118,7 +118,7 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             return None
 
 
-class SqliteRealtimeDatabase(AbstractRealtimeDatabase):
+class SqliteRealtimeDatabase(InternalRealtimeDatabase):
     """
     Abstract realtime database
     """
@@ -126,8 +126,15 @@ class SqliteRealtimeDatabase(AbstractRealtimeDatabase):
         """
         Constructor
         """
-        AbstractRealtimeDatabase.__init__(self)
+        InternalRealtimeDatabase.__init__(self)
         self.__client = SqliteClient()
+
+    def __del__(self):
+        """
+        Destructor
+        """
+        # Do nothing
+        pass
 
     def connect(self, **kwargs):
         """
@@ -143,6 +150,7 @@ class SqliteRealtimeDatabase(AbstractRealtimeDatabase):
         Update the latest order information
         :param exe_report: Execution report
         """
+        InternalRealtimeDatabase.update(self, request, report)
         active_order = ActiveOrders(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
                                     exchange=report.Instrument.SecurityExchange.value,
                                     instmt_name=report.Instrument.Symbol.value,
@@ -158,24 +166,6 @@ class SqliteRealtimeDatabase(AbstractRealtimeDatabase):
                                     transacttime=report.TransactTime.value)
 
         self.__client.insert(active_order)
-
-    def get_latest_by_order_id(self, request):
-        """
-        Get the latest execution report by order id
-        :param request: Request
-        :return: Latest execution report. None if not found
-        """
-        order_id = request.OrderID.value
-        if order_id is not None:
-            exchange = request.Instrument.SecurityExchange.value
-            instmt = request.Instrument.Symbol.value
-            key = (order_id, exchange, instmt)
-            if key in self._execution_report_cache.keys():
-                return self._execution_report_cache[key][-1]
-            else:
-                return None
-        else:
-            return None
 
     def get_database(self):
         """
