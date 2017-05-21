@@ -249,6 +249,7 @@ class SingleMarketMaking(RealTimeStrategy):
         status_request.Instrument.Symbol.value = last_status.Instrument.Symbol.value
         status_request.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
         status_request.Side.value = last_status.Side.value
+        status_request.Header.SendingTime.value = self.ordsvr.now_string()
 
     def __init_order_cancel_reqeust(self,
                                     order_cancel: Fix.Messages.OrderCancelRequest,
@@ -264,16 +265,19 @@ class SingleMarketMaking(RealTimeStrategy):
         order_cancel.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
         order_cancel.Side.value = last_status.Side.value
         order_cancel.OrderQtyData.OrderQty.value = last_status.OrderQtyData.OrderQty.value
+        order_cancel.Header.SendingTime.value = self.ordsvr.now_string()
 
     def __init_new_order_single(self, order_book, new_order_single: Fix.Messages.NewOrderSingle, price, qty):
         """
         Create new order single
         :return: New order single
         """
+        now_string = self.ordsvr.now_string()
         new_order_single.Price.value = price
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.ClOrdID.value = self.__create_request_id()
-        new_order_single.TransactTime.value = self.ordsvr.now_string()
+        new_order_single.TransactTime.value = now_string
+        new_order_single.Header.SendingTime.value = now_string
 
         # Set triggering quantity. If the price is not with the first 5 price range,
         # set it as 0 for triggering quantity.

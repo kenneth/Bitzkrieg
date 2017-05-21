@@ -102,19 +102,16 @@ class OrderRequests(TableRecord):
     @classmethod
     def columns(cls):
         return [('id', int),
-                ('timestamp', str),
                 ('msgtype', str),
+                ('timestamp', str),
+                ('clordid', str),
                 ('exchange', str),
                 ('instmt_name', str),
-                ('clordid', str),
+                ('orderid', str),
+                ('side', str),
                 ('price', float),
                 ('orderqty', float),
-                ('cumqty', float),
-                ('leavesqty', float),
-                ('avgpx', float),
-                ('ordstatus', str),
-                ('exectype', str),
-                ('clordid', str),
-                ('transacttime', str)
-
+                ('ordtype', str),
+                ('timeinforce', str),
+                ('sendingtime', str)
                 ]
