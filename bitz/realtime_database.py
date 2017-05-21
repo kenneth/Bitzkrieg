@@ -155,6 +155,7 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
                                     exchange=report.Instrument.SecurityExchange.value,
                                     instmt_name=report.Instrument.Symbol.value,
                                     orderid=report.OrderID.value,
+                                    side=report.Side.value,
                                     price=report.Price.value,
                                     orderqty=report.OrderQtyData.OrderQty.value,
                                     cumqty=report.CumQty.value,
@@ -162,6 +163,8 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
                                     avgpx=report.AvgPx.value,
                                     ordstatus=report.OrdStatus.value,
                                     exectype=report.ExecType.value,
+                                    ordtype=report.OrdType.value,
+                                    timeinforce=report.TimeInForce.value,
                                     clordid=report.ClOrdID.value,
                                     transacttime=report.TransactTime.value)
 
