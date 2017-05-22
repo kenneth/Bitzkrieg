@@ -227,6 +227,10 @@ class Factory(object):
         if param != '':
             smm.init_parameters(default_trading_qty=float(param))
 
+        param = self.__config.get(section, 'default_trade_side')
+        if param != '':
+            smm.init_parameters(default_trade_side=int(param))
+
         # Signal handling
         signal.signal(signal.SIGINT, smm.handle_signal)
         signal.signal(signal.SIGTERM, smm.handle_signal)

@@ -29,6 +29,11 @@ class SingleMarketMaking(RealTimeStrategy):
         PROGRAM_EXIT = 3
         SEEKING_FOR_A_BETTER_PRICE = 4
 
+    class TradeSide:
+        BOTH = 0
+        BUY_ONLY = 1
+        SELL_ONLY = 1
+
     def __init__(self, name: str, ordsvr, logger, target_instmt: Instrument, referenced_instmt: List[Instrument]):
         """
         Constructor
@@ -42,6 +47,7 @@ class SingleMarketMaking(RealTimeStrategy):
         self.max_rejected_request = 10
         self.market_data_stalled_time_sec = 30 * 60
         self.default_trading_qty = 0.006
+        self.default_trade_side = SingleMarketMaking.TradeSide.BOTH
         self.__open_orders = {}
 
     def init_parameters(self, **kwargs):
@@ -59,6 +65,12 @@ class SingleMarketMaking(RealTimeStrategy):
             self.market_data_stalled_time_sec = kwargs['market_data_stalled_time_sec']
         if 'default_trading_qty' in kwargs.keys():
             self.default_trading_qty = kwargs['default_trading_qty']
+        if 'default_trade_side' in kwargs.keys():
+            default_trade_side = kwargs['default_trade_side']
+            if default_trade_side >= 0 and default_trade_side <= 2:
+                self.default_trade_side = default_trade_side
+            else:
+                raise NotImplementedError("Default trade side (%d) not implemented" % default_trade_side)
 
     def monitor(self):
         """
@@ -70,8 +82,9 @@ class SingleMarketMaking(RealTimeStrategy):
         order_cancel_request = Fix.Messages.OrderCancelRequest()
 
         for side in [Fix.Tags.Side.Values.BUY, Fix.Tags.Side.Values.SELL]:
-            order = self.__create_new_order_single(self.target_instmt, side)
-            self.__open_orders[order] = None
+            if self.default_trade_side == SingleMarketMaking.TradeSide.BOTH or int(side) == self.default_trade_side:
+                order = self.__create_new_order_single(self.target_instmt, side)
+                self.__open_orders[order] = None
 
         self.logger.info(self.__class__.__name__, "Start monitoring the market...")
 
@@ -117,7 +130,6 @@ class SingleMarketMaking(RealTimeStrategy):
 
                     # Query the open order status
                     if not self.__update_best_bid_ask_price(order, target_snapshot.order_book):
-                    # if True:
                         self.__init_order_status_request(order_status_request, open_order)
                         fix_responses, err_text = self.ordsvr.request(order_status_request)
                         # Assert
@@ -154,8 +166,7 @@ class SingleMarketMaking(RealTimeStrategy):
                             self.logger.info(self.__class__.__name__, "Cancel is rejected.\n%s" % fixmsg2dict(response))
 
                 else:
-                    if self.__is_place_order(order) and \
-                        self.ordsvr.valid_risk_limit(order):
+                    if self.__is_place_order(order) and self.ordsvr.valid_risk_limit(order):
                         fix_responses, err_text = self.ordsvr.request(order)
                     else:
                         continue
