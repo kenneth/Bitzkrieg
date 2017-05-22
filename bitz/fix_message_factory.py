@@ -75,7 +75,7 @@ class FixMessageFactory(object):
         execution_report.Price.value = price
         execution_report.OrderQtyData.value = qty
         execution_report.Side.value = side
-        execution_report.OrdType.value = ordtype,
+        execution_report.OrdType.value = ordtype
         execution_report.TimeInForce.value = timeinforce
         execution_report.TransactTime.value = transacttime
         execution_report.OrdStatus.value = ordstatus

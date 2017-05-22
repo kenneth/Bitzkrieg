@@ -41,7 +41,7 @@ class SingleMarketMaking(RealTimeStrategy):
         self.rejected_request = 0
         self.max_rejected_request = 10
         self.market_data_stalled_time_sec = 30 * 60
-        self.max_fiat_currency_risk = 50
+        self.default_trading_qty = 0.006
         self.__open_orders = {}
 
     def init_parameters(self, **kwargs):
@@ -57,8 +57,8 @@ class SingleMarketMaking(RealTimeStrategy):
             self.max_rejected_request = kwargs['max_rejected_request']
         if 'market_data_stalled_time_sec' in kwargs.keys():
             self.market_data_stalled_time_sec = kwargs['market_data_stalled_time_sec']
-        if 'max_fiat_currency_risk' in kwargs.keys():
-            self.max_fiat_currency_risk = kwargs['max_fiat_currency_risk']
+        if 'default_trading_qty' in kwargs.keys():
+            self.default_trading_qty = kwargs['default_trading_qty']
 
     def monitor(self):
         """
@@ -367,7 +367,7 @@ class SingleMarketMaking(RealTimeStrategy):
             if market_price >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size and \
                             target_snapshot.order_book.b1 > 0:
                 price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
-                qty = int(self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
+                qty = self.default_trading_qty
                 self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
                 return True
             else:
@@ -379,7 +379,7 @@ class SingleMarketMaking(RealTimeStrategy):
             if market_price <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size and \
                             market_price > 0:
                 price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
-                qty = int( self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
+                qty = self.default_trading_qty
                 self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
                 return True
             else:

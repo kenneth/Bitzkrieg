@@ -99,25 +99,14 @@ class RiskManager(object):
                 "No currency %s is defined in exchange %s" % (digital_currency, exchange)
         assert fiat_currency in self.__exchanges[exchange].keys(), \
             "No currency %s is defined in exchange %s" % (fiat_currency, exchange)
-        assert strategy in self.__strategies.keys(), "No strategy %s is defined." % strategy.get_name()
-        assert digital_currency in self.__strategies[strategy].keys(), \
-                "No currency %s is defined in strategy %s" % (digital_currency, strategy.get_name())
-        assert fiat_currency in self.__strategies[strategy].keys(), \
-            "No currency %s is defined in strategy %s" % (fiat_currency, strategy.get_name())
-        assert strategy.get_max_fiat_currency_risk() is not None, \
-            "Strategy (%s) has not set the maximum fiat currency risk." % strategy.get_name()
         if message.Side.value == Fix.Tags.Side.Values.BUY:
             exch_fiat_available = self.__exchanges[exchange][fiat_currency].available_balance
-            strategy_fiat_available = self.__strategies[strategy][fiat_currency].available_balance
             fiat_risk = message.Price.value * message.OrderQtyData.OrderQty.value
-            return fiat_risk < exch_fiat_available and \
-                   (strategy_fiat_available - fiat_risk) >= -strategy.get_max_fiat_currency_risk()
+            return fiat_risk < exch_fiat_available
         elif message.Side.value == Fix.Tags.Side.Values.SELL:
             exch_digital_available = self.__exchanges[exchange][digital_currency].available_balance
-            strategy_digital_available = self.__strategies[strategy][digital_currency].available_balance
             digital_risk = message.OrderQtyData.OrderQty.value
-            return digital_risk < exch_digital_available and \
-                   (strategy_digital_available - digital_risk) * message.Price.value >= -strategy.get_max_fiat_currency_risk()
+            return digital_risk < exch_digital_available
         else:
             raise NotImplementedError("Side %s not implemented." % message.Side.value)
 
