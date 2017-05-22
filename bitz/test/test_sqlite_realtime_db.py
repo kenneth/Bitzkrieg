@@ -63,9 +63,9 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
         fix_message.PosMaintRptID.value = datetime.utcnow().strftime("%y%m%d%H%M%S%f") + str(uuid())
 
         for currency, total_balance, available_balance in \
-                [('USD', 2000, 2000),
-                 ('HKD', 100000, 100000),
-                 ('BTC', 10, 10)]:
+                [('USD', 2000, 1500),
+                 ('HKD', 100000, 90000),
+                 ('BTC', 10, 8)]:
             # Total
             positionAmountData = Fix.Components.PositionAmountData.NoPosAmt()
             positionAmountData.PositionCurrency.value = currency
@@ -86,6 +86,27 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
         # Get DB records and check
         records = db.get_database().select(Balances())
         self.assertEqual(3, len(records))
+        checksum = 0
+        ccyIdx = 3
+        totalBalanceIdx = 4
+        availableBalanceIdx = 5
+        # [3] for ccy, [4] for total balance, [5] for available balance
+        for record in records:
+            if record[ccyIdx] == 'USD':
+                self.assertEqual(record[totalBalanceIdx], 2000)
+                self.assertEqual(record[availableBalanceIdx], 1500)
+                checksum |= 1
+            elif record[ccyIdx] == 'HKD':
+                self.assertEqual(record[totalBalanceIdx], 100000)
+                self.assertEqual(record[availableBalanceIdx], 90000)
+                checksum |= 2
+            elif record[ccyIdx] == 'BTC':
+                self.assertEqual(record[totalBalanceIdx], 10)
+                self.assertEqual(record[availableBalanceIdx], 8)
+                checksum |= 4
+            else:
+                checksum = 0
+        self.assertEqual(checksum, 7)
 
 if __name__ == '__main__':
     unittest.main()
