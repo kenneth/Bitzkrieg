@@ -20,6 +20,9 @@ class AbstractRealtimeDatabase(object):
         # Execution report cache. (OrderID, Exchange, Instmt) is the key, while the latest execution report
         # is the value
         self._execution_report_cache = {}
+        # Position report cache. (Exchange) is the key, while the request is the latest position report
+        # Assuming the position report covers all currency
+        self._position_report_cache = {}
 
     def connect(self, **kwargs):
         """
@@ -78,6 +81,12 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
                 file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._execution_report_cache[key][-1])))
             file.close()
 
+            file = open(os.path.join(self.__output_path, 'position_report_cache_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
+                        'w+')
+            for key in sorted(self._position_report_cache.keys()):
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._position_report_cache[key][-1])))
+            file.close()
+
     def connect(self, **kwargs):
         """
         Connect to the database
@@ -111,7 +120,9 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
         Update the latest balances  information
         :param pos_report: Position report
         """
-        pass
+        if pos_report.MsgType != Fix.Tags.MsgType.Values.POSITIONREPORT:
+            NotImplementedError("Unknown Fix Message Type")
+        self._position_report_cache.setdefault(pos_report.Instrument.SecurityExchange.value, []).append(pos_report)
 
     def get_latest_by_order_id(self, request):
         """

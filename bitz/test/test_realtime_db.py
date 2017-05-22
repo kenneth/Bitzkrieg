@@ -25,6 +25,11 @@ class TInternalRealtimeDatabase(unittest.TestCase):
         for file in file_list:
             os.remove(file)
 
+        file_list = glob.glob(os.path.join('bitz', 'test', 'position_report_cache_*.db'))
+        assert len(file_list) > 0, "Database file should be created."
+        for file in file_list:
+            os.remove(file)
+
     def test_create_and_insert(self):
         db = InternalRealtimeDatabase()
         db.connect(path=os.path.join('bitz', 'test'))
