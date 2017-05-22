@@ -2,6 +2,7 @@
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.sql_client import SqliteClient
 from bitz.db_records import ActiveOrders
+from bitz.db_records import Balances
 from bitz.util import fixmsg2dict
 from typing import Union
 from datetime import datetime
@@ -82,22 +83,25 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             self.__output_path = ''
             assert False, "Invalid output path (%s)" % prev_path
 
-    def update(self, request, response: Union[Fix.Messages.ExecutionReport, Fix.Messages.OrderCancelReject]):
+    def update(self, request, response: Union[Fix.Messages.ExecutionReport, Fix.Messages.OrderCancelReject, Fix.Messages.PositionReport]):
         """
         Update the latest order information
         :param response: Execution report
         """
-        order_id = response.OrderID.value
-        if order_id is not None:
-            exchange = response.Instrument.SecurityExchange.value
-            instmt = response.Instrument.Symbol.value
-            key = (order_id, exchange, instmt)
-            self._execution_report_cache.setdefault(key, []).append(response)
-            self._historical_requests.setdefault(key, []).append(request)
+        if response.MsgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
+            pass
         else:
-            if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
-                assert response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED, \
-                        "ExecType(%s) is not rejected at ER (%s)" % (response.ExecType.value, response.ExecID.value)
+            order_id = response.OrderID.value
+            if order_id is not None:
+                exchange = response.Instrument.SecurityExchange.value
+                instmt = response.Instrument.Symbol.value
+                key = (order_id, exchange, instmt)
+                self._execution_report_cache.setdefault(key, []).append(response)
+                self._historical_requests.setdefault(key, []).append(request)
+            else:
+                if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
+                    assert response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED, \
+                            "ExecType(%s) is not rejected at ER (%s)" % (response.ExecType.value, response.ExecID.value)
 
     def get_latest_by_order_id(self, request):
         """
@@ -144,28 +148,60 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
         path = kwargs['path']
         self.__client.connect(path=path)
         self.__client.create(ActiveOrders)
+        self.__client.create(Balances)
 
-    def update(self, request, report: Fix.Messages.ExecutionReport):
+    def update(self, request, report: Union[Fix.Messages.ExecutionReport, Fix.Messages.PositionReport]):
         """
         Update the latest order information
         :param exe_report: Execution report
         """
-        InternalRealtimeDatabase.update(self, request, report)
-        active_order = ActiveOrders(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
-                                    exchange=report.Instrument.SecurityExchange.value,
-                                    instmt_name=report.Instrument.Symbol.value,
-                                    orderid=report.OrderID.value,
-                                    price=report.Price.value,
-                                    orderqty=report.OrderQtyData.OrderQty.value,
-                                    cumqty=report.CumQty.value,
-                                    leavesqty=report.LeavesQty.value,
-                                    avgpx=report.AvgPx.value,
-                                    ordstatus=report.OrdStatus.value,
-                                    exectype=report.ExecType.value,
-                                    clordid=report.ClOrdID.value,
-                                    transacttime=report.TransactTime.value)
+        if isinstance(report, Fix.Messages.ExecutionReport):
+            InternalRealtimeDatabase.update(self, request, report)
+            active_order = ActiveOrders(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                        exchange=report.Instrument.SecurityExchange.value,
+                                        instmt_name=report.Instrument.Symbol.value,
+                                        orderid=report.OrderID.value,
+                                        price=report.Price.value,
+                                        orderqty=report.OrderQtyData.OrderQty.value,
+                                        cumqty=report.CumQty.value,
+                                        leavesqty=report.LeavesQty.value,
+                                        avgpx=report.AvgPx.value,
+                                        ordstatus=report.OrdStatus.value,
+                                        exectype=report.ExecType.value,
+                                        clordid=report.ClOrdID.value,
+                                        transacttime=report.TransactTime.value)
 
-        self.__client.insert(active_order)
+            self.__client.insert(active_order)
+        elif isinstance(report, Fix.Messages.PositionReport):
+            # InternalRealtimeDatabase.update(self, request, report)
+            balances = {}
+            availableBalances = {}
+
+            for position in report.PositionAmountData.groups:
+                currency = position.PositionCurrency.value.upper()
+                value = position.PosAmt.value
+                type = position.PosAmtType.value
+
+                if type == Fix.Tags.PosAmtType.Values.CASH_AMOUNT:
+                    balances[currency] = value
+                elif type == Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT:
+                    availableBalances[currency] = value
+                else:
+                    assert False, "Invalid position amount type %d" % type
+
+            for currency in availableBalances.keys():
+                if currency not in balances.keys():
+                    raise NotImplementedError("Currency %s has available balances but no balances" % currency)
+
+            for currency in balances.keys():
+                ccyBalance = Balances(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                      exchange=report.Instrument.SecurityExchange.value,
+                                      ccy=currency,
+                                      balance=balances[currency],
+                                      availableBalance=availableBalances.get(currency, float('nan')))
+                self.__client.insert(ccyBalance)
+        else:
+            NotImplementedError("Unknown Fix Message Type")
 
     def get_database(self):
         """

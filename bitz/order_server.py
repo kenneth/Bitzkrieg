@@ -266,7 +266,7 @@ class OrderServer:
             self.__supply_transacttime_if_missing(message)
             self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
-            pass
+            self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
             self.__supply_transacttime_if_missing(message)
         else:

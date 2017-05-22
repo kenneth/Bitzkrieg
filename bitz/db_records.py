@@ -90,3 +90,25 @@ class ActiveOrders(TableRecord):
     @classmethod
     def primary_keys(cls):
         return ['id']
+
+class Balances(TableRecord):
+    """
+    Balances
+    """
+    @classmethod
+    def name(cls):
+        return 'BALANCES'
+
+    @classmethod
+    def columns(cls):
+        return[('id', int),
+               ('timestamp', str),
+               ('exchange', str),
+               ('ccy', str),
+               ('balance', float),
+               ('availableBalance', float),
+               ]
+
+    @classmethod
+    def primary_keys(cls):
+        return ['id']
