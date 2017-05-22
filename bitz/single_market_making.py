@@ -64,8 +64,6 @@ class SingleMarketMaking(RealTimeStrategy):
         """
         Monitor the market
         """
-        # Register strategy
-        self.ordsvr.register_strategy(self, self.target_instmt)
         # Initialize orders
         target_snapshot = None
         order_status_request = Fix.Messages.OrderStatusRequest()
@@ -157,7 +155,7 @@ class SingleMarketMaking(RealTimeStrategy):
 
                 else:
                     if self.__is_place_order(order) and \
-                        self.ordsvr.valid_risk_limit(order, self):
+                        self.ordsvr.valid_risk_limit(order):
                         fix_responses, err_text = self.ordsvr.request(order)
                     else:
                         continue

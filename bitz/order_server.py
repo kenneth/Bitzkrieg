@@ -7,7 +7,6 @@ from bitz.risk_manager import RiskManager
 from bitz.market_data_feed import MarketDataFeed
 from bitz.util import update_fixtime, fixmsg2dict
 from bitz.market_data import Snapshot
-from bitz.realtime_strategy import RealTimeStrategy
 from datetime import datetime
 from typing import Union, List, Tuple
 from uuid import uuid4 as uuid
@@ -137,15 +136,6 @@ class OrderServer:
         self.exchanges[name] = exchange
         self.risk_manager.register_exchange(name)
 
-    def register_strategy(self, strategy: RealTimeStrategy, instmt):
-        """
-        Register strategy
-        :param strategy: Strategy
-        :param instmt: Instrument
-        """
-        self.risk_manager.register_strategy(strategy, instmt)
-
-
     def initialize_exchange_risk(self):
         """
         Initialize exchange risk. This method is called when all the gateways are registered.
@@ -159,14 +149,13 @@ class OrderServer:
             assert err_msg == "", "Error (%s) is found." % err_msg
             assert len(responses) == 1, "Expect to have only one response."
 
-    def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle, strategy):
+    def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle):
         """
         Valid the risk limit
         :param message: New order single
-        :param strategy: Strategy
         :return: True if pass.
         """
-        return self.risk_manager.risk_check(message, strategy)
+        return self.risk_manager.risk_check(message)
 
     def __is_valid_exchange(self, message):
         """
