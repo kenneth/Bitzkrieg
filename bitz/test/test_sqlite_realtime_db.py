@@ -38,14 +38,14 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
                                                         timeinforce=Fix.Tags.TimeInForce.Values.DAY,
                                                         transacttime=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"))
         ack = FixMessageFactory.create_execution_report_from_new_order_single(req, orderid=str(uuid()))
-        db.update(req, ack)
+        db.update_order(req, ack)
         records = db.get_database().select(ActiveOrders())
         self.assertEqual(1, len(records))
         ack.LastPx.value = ack.Price.value
         ack.LastQty.value = 0.1
         ack.CumQty.value = ack.LastQty.value
         ack.AvgPx.value = ack.Price.value
-        db.update(req, ack)
+        db.update_order(req, ack)
         records = db.get_database().select(ActiveOrders())
         self.assertEqual(2, len(records))
 
@@ -81,7 +81,7 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
             fix_message.PositionAmountData.groups.append(positionAmountData)
 
         # Simply skip the position request message, as not used
-        db.update(None, fix_message)
+        db.update_balances(None, fix_message)
 
         # Get DB records and check
         records = db.get_database().select(Balances())

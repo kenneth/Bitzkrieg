@@ -253,9 +253,9 @@ class OrderServer:
                                            Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED]:
                 self.__supply_information_if_missing(request, message)
             self.__supply_transacttime_if_missing(message)
-            self.realtime_db.update(request, message)
+            self.realtime_db.update_order(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
-            self.realtime_db.update(request, message)
+            self.realtime_db.update_balances(request, message)
         elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
             self.__supply_transacttime_if_missing(message)
         else:

@@ -41,7 +41,7 @@ class TInternalRealtimeDatabase(unittest.TestCase):
         response.ExecType.value = Fix.Tags.ExecType.Values.NEW
         response.OrderID.value = str(uuid())
         # Update the database
-        db.update(request, response)
+        db.update_order(request, response)
 
     def test_connect_fail(self):
         db = InternalRealtimeDatabase()
