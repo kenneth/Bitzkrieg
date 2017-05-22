@@ -76,6 +76,7 @@ class ActiveOrders(TableRecord):
                 ('exchange', str),
                 ('instmt_name', str),
                 ('orderid', str),
+                ('side', str),
                 ('price', float),
                 ('orderqty', float),
                 ('cumqty', float),
@@ -83,6 +84,8 @@ class ActiveOrders(TableRecord):
                 ('avgpx', float),
                 ('ordstatus', str),
                 ('exectype', str),
+                ('ordtype', str),
+                ('timeinforce', str),
                 ('clordid', str),
                 ('transacttime', str)
                 ]
@@ -90,6 +93,28 @@ class ActiveOrders(TableRecord):
     @classmethod
     def primary_keys(cls):
         return ['id']
+
+class OrderRequests(TableRecord):
+    @classmethod
+    def name(cls):
+        return 'ORDER_REQUESTS'
+
+    @classmethod
+    def columns(cls):
+        return [('id', int),
+                ('msgtype', str),
+                ('timestamp', str),
+                ('clordid', str),
+                ('exchange', str),
+                ('instmt_name', str),
+                ('orderid', str),
+                ('side', str),
+                ('price', float),
+                ('orderqty', float),
+                ('ordtype', str),
+                ('timeinforce', str),
+                ('sendingtime', str)
+                ]
 
 class Balances(TableRecord):
     """

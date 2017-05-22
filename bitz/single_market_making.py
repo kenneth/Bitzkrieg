@@ -29,6 +29,11 @@ class SingleMarketMaking(RealTimeStrategy):
         PROGRAM_EXIT = 3
         SEEKING_FOR_A_BETTER_PRICE = 4
 
+    class TradeSide:
+        BOTH = 0
+        BUY_ONLY = 1
+        SELL_ONLY = 1
+
     def __init__(self, name: str, ordsvr, logger, target_instmt: Instrument, referenced_instmt: List[Instrument]):
         """
         Constructor
@@ -41,7 +46,8 @@ class SingleMarketMaking(RealTimeStrategy):
         self.rejected_request = 0
         self.max_rejected_request = 10
         self.market_data_stalled_time_sec = 30 * 60
-        self.max_fiat_currency_risk = 50
+        self.default_trading_qty = 0.006
+        self.default_trade_side = SingleMarketMaking.TradeSide.BOTH
         self.__open_orders = {}
 
     def init_parameters(self, **kwargs):
@@ -57,23 +63,28 @@ class SingleMarketMaking(RealTimeStrategy):
             self.max_rejected_request = kwargs['max_rejected_request']
         if 'market_data_stalled_time_sec' in kwargs.keys():
             self.market_data_stalled_time_sec = kwargs['market_data_stalled_time_sec']
-        if 'max_fiat_currency_risk' in kwargs.keys():
-            self.max_fiat_currency_risk = kwargs['max_fiat_currency_risk']
+        if 'default_trading_qty' in kwargs.keys():
+            self.default_trading_qty = kwargs['default_trading_qty']
+        if 'default_trade_side' in kwargs.keys():
+            default_trade_side = kwargs['default_trade_side']
+            if default_trade_side >= 0 and default_trade_side <= 2:
+                self.default_trade_side = default_trade_side
+            else:
+                raise NotImplementedError("Default trade side (%d) not implemented" % default_trade_side)
 
     def monitor(self):
         """
         Monitor the market
         """
-        # Register strategy
-        self.ordsvr.register_strategy(self, self.target_instmt)
         # Initialize orders
         target_snapshot = None
         order_status_request = Fix.Messages.OrderStatusRequest()
         order_cancel_request = Fix.Messages.OrderCancelRequest()
 
         for side in [Fix.Tags.Side.Values.BUY, Fix.Tags.Side.Values.SELL]:
-            order = self.__create_new_order_single(self.target_instmt, side)
-            self.__open_orders[order] = None
+            if self.default_trade_side == SingleMarketMaking.TradeSide.BOTH or int(side) == self.default_trade_side:
+                order = self.__create_new_order_single(self.target_instmt, side)
+                self.__open_orders[order] = None
 
         self.logger.info(self.__class__.__name__, "Start monitoring the market...")
 
@@ -119,7 +130,6 @@ class SingleMarketMaking(RealTimeStrategy):
 
                     # Query the open order status
                     if not self.__update_best_bid_ask_price(order, target_snapshot.order_book):
-                    # if True:
                         self.__init_order_status_request(order_status_request, open_order)
                         fix_responses, err_text = self.ordsvr.request(order_status_request)
                         # Assert
@@ -156,8 +166,7 @@ class SingleMarketMaking(RealTimeStrategy):
                             self.logger.info(self.__class__.__name__, "Cancel is rejected.\n%s" % fixmsg2dict(response))
 
                 else:
-                    if self.__is_place_order(order) and \
-                        self.ordsvr.valid_risk_limit(order, self):
+                    if self.__is_place_order(order) and self.ordsvr.valid_risk_limit(order):
                         fix_responses, err_text = self.ordsvr.request(order)
                     else:
                         continue
@@ -249,6 +258,7 @@ class SingleMarketMaking(RealTimeStrategy):
         status_request.Instrument.Symbol.value = last_status.Instrument.Symbol.value
         status_request.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
         status_request.Side.value = last_status.Side.value
+        status_request.Header.SendingTime.value = self.ordsvr.now_string()
 
     def __init_order_cancel_reqeust(self,
                                     order_cancel: Fix.Messages.OrderCancelRequest,
@@ -264,16 +274,19 @@ class SingleMarketMaking(RealTimeStrategy):
         order_cancel.Instrument.SecurityExchange.value = last_status.Instrument.SecurityExchange.value
         order_cancel.Side.value = last_status.Side.value
         order_cancel.OrderQtyData.OrderQty.value = last_status.OrderQtyData.OrderQty.value
+        order_cancel.Header.SendingTime.value = self.ordsvr.now_string()
 
     def __init_new_order_single(self, order_book, new_order_single: Fix.Messages.NewOrderSingle, price, qty):
         """
         Create new order single
         :return: New order single
         """
+        now_string = self.ordsvr.now_string()
         new_order_single.Price.value = price
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.ClOrdID.value = self.__create_request_id()
-        new_order_single.TransactTime.value = self.ordsvr.now_string()
+        new_order_single.TransactTime.value = now_string
+        new_order_single.Header.SendingTime.value = now_string
 
         # Set triggering quantity. If the price is not with the first 5 price range,
         # set it as 0 for triggering quantity.
@@ -363,7 +376,7 @@ class SingleMarketMaking(RealTimeStrategy):
             if market_price >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size and \
                             target_snapshot.order_book.b1 > 0:
                 price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
-                qty = int(self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
+                qty = self.default_trading_qty
                 self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
                 return True
             else:
@@ -375,7 +388,7 @@ class SingleMarketMaking(RealTimeStrategy):
             if market_price <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size and \
                             market_price > 0:
                 price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
-                qty = int( self.max_fiat_currency_risk / price / self.target_instmt.qty_min_size) * self.target_instmt.qty_min_size
+                qty = self.default_trading_qty
                 self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
                 return True
             else:

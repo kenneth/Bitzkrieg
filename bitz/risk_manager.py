@@ -1,7 +1,5 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-from bitz.realtime_strategy import RealTimeStrategy
-from bitz.instrument import Instrument
 from typing import Union, Mapping
 
 class RiskManager(object):
@@ -28,7 +26,6 @@ class RiskManager(object):
         Constructor
         """
         self.__exchanges = {}
-        self.__strategies = {}
 
     def register_exchange(self, exchange):
         """
@@ -38,19 +35,6 @@ class RiskManager(object):
         exchange = exchange.upper()
         assert exchange not in self.__exchanges.keys(), "Exchange %s has been registered already." % exchange
         return self.__exchanges.setdefault(exchange, {})
-
-    def register_strategy(self, strategy: RealTimeStrategy, instmt: Instrument):
-        """
-        Register strategy
-        :param strategy: Strategy
-        :param instmt: Traded instrument
-        """
-        assert strategy not in self.__strategies.keys(), "Strategy %s has been registered already." % strategy.get_name()
-        digital_currency = instmt.instmt_name[0:3].upper()
-        fiat_currency = instmt.instmt_name[3:].upper()
-        self.__strategies.setdefault(strategy, {})[digital_currency] = RiskManager.RiskLevel(digital_currency)
-        self.__strategies[strategy][fiat_currency] = RiskManager.RiskLevel(fiat_currency)
-        return self.__strategies[strategy]
 
     def get_exchange_balance(self, exchange, currency="") -> Union[RiskLevel, Mapping[str, RiskLevel]]:
         """
@@ -67,25 +51,10 @@ class RiskManager(object):
             assert currency in self.__exchanges[exchange].keys()
             return self.__exchanges[exchange][currency]
 
-    def get_strategy_balance(self, strategy, currency="") -> Union[RiskLevel, Mapping[str, RiskLevel]]:
+    def risk_check(self, message: Fix.Messages.NewOrderSingle):
         """
-        Get strategy balance
-        :param strategy: Strategy
-        :param currency: Currency
-        """
-        assert strategy in self.__strategies.keys()
-        if currency == "":
-            return self.__strategies[strategy]
-        else:
-            currency = currency.upper()
-            assert currency in self.__strategies[strategy].keys()
-            return self.__strategies[strategy][currency]
-
-    def risk_check(self, message: Fix.Messages.NewOrderSingle, strategy: RealTimeStrategy):
-        """
-        Risk checking on the exchange and strategy level
+        Risk checking on the exchange
         :param message: New order single
-        :param strategy: Strategy
         :return: True if passed.
         """
         assert message.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE, \
@@ -99,25 +68,14 @@ class RiskManager(object):
                 "No currency %s is defined in exchange %s" % (digital_currency, exchange)
         assert fiat_currency in self.__exchanges[exchange].keys(), \
             "No currency %s is defined in exchange %s" % (fiat_currency, exchange)
-        assert strategy in self.__strategies.keys(), "No strategy %s is defined." % strategy.get_name()
-        assert digital_currency in self.__strategies[strategy].keys(), \
-                "No currency %s is defined in strategy %s" % (digital_currency, strategy.get_name())
-        assert fiat_currency in self.__strategies[strategy].keys(), \
-            "No currency %s is defined in strategy %s" % (fiat_currency, strategy.get_name())
-        assert strategy.get_max_fiat_currency_risk() is not None, \
-            "Strategy (%s) has not set the maximum fiat currency risk." % strategy.get_name()
         if message.Side.value == Fix.Tags.Side.Values.BUY:
             exch_fiat_available = self.__exchanges[exchange][fiat_currency].available_balance
-            strategy_fiat_available = self.__strategies[strategy][fiat_currency].available_balance
             fiat_risk = message.Price.value * message.OrderQtyData.OrderQty.value
-            return fiat_risk < exch_fiat_available and \
-                   (strategy_fiat_available - fiat_risk) >= -strategy.get_max_fiat_currency_risk()
+            return fiat_risk < exch_fiat_available
         elif message.Side.value == Fix.Tags.Side.Values.SELL:
             exch_digital_available = self.__exchanges[exchange][digital_currency].available_balance
-            strategy_digital_available = self.__strategies[strategy][digital_currency].available_balance
             digital_risk = message.OrderQtyData.OrderQty.value
-            return digital_risk < exch_digital_available and \
-                   (strategy_digital_available - digital_risk) * message.Price.value >= -strategy.get_max_fiat_currency_risk()
+            return digital_risk < exch_digital_available
         else:
             raise NotImplementedError("Side %s not implemented." % message.Side.value)
 

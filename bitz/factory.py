@@ -223,9 +223,13 @@ class Factory(object):
         if param != '':
             smm.init_parameters(market_data_stalled_time_sec=int(param))
 
-        param = self.__config.get(section, 'max_fiat_currency_risk')
+        param = self.__config.get(section, 'default_trading_qty')
         if param != '':
-            smm.init_parameters(max_fiat_currency_risk=float(param))
+            smm.init_parameters(default_trading_qty=float(param))
+
+        param = self.__config.get(section, 'default_trade_side')
+        if param != '':
+            smm.init_parameters(default_trade_side=int(param))
 
         # Signal handling
         signal.signal(signal.SIGINT, smm.handle_signal)

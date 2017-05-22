@@ -1,8 +1,7 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.sql_client import SqliteClient
-from bitz.db_records import ActiveOrders
-from bitz.db_records import Balances
+from bitz.db_records import ActiveOrders, Balances, OrderRequests
 from bitz.util import fixmsg2dict
 from typing import Union
 from datetime import datetime
@@ -149,6 +148,7 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
         self.__client.connect(path=path)
         self.__client.create(ActiveOrders)
         self.__client.create(Balances)
+        self.__client.create(OrderRequests)
 
     def update(self, request, report: Union[Fix.Messages.ExecutionReport, Fix.Messages.PositionReport]):
         """
@@ -157,10 +157,61 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
         """
         if isinstance(report, Fix.Messages.ExecutionReport):
             InternalRealtimeDatabase.update(self, request, report)
+
+            # Update order requests
+            if request.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
+                order_request = OrderRequests(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                              msgtype=request.MsgType,
+                                              exchange=request.Instrument.SecurityExchange.value,
+                                              instmt_name=request.Instrument.Symbol.value,
+                                              clordid=request.ClOrdID.value,
+                                              side=request.Side.value,
+                                              price=request.Price.value,
+                                              orderqty=request.OrderQtyData.OrderQty.value,
+                                              ordtype=request.OrdType.value,
+                                              timeinforce=request.TimeInForce.value,
+                                              sendingtime=request.Header.SendingTime.value)
+            elif request.MsgType ==  Fix.Tags.MsgType.Values.ORDERCANCELREPLACEREQUEST:
+                order_request = OrderRequests(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                              msgtype=request.MsgType,
+                                              exchange=request.Instrument.SecurityExchange.value,
+                                              instmt_name=request.Instrument.Symbol.value,
+                                              clordid=request.ClOrdID.value,
+                                              orderid=request.OrderID.value,
+                                              side=request.Side.value,
+                                              price=request.Price.value,
+                                              orderqty=request.OrderQtyData.OrderQty.value,
+                                              ordtype=request.OrdType.value,
+                                              timeinforce=request.TimeInForce.value,
+                                              sendingtime=request.Header.SendingTime.value)
+            elif request.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREQUEST:
+                order_request = OrderRequests(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                              msgtype=request.MsgType,
+                                              exchange=request.Instrument.SecurityExchange.value,
+                                              instmt_name=request.Instrument.Symbol.value,
+                                              clordid=request.ClOrdID.value,
+                                              orderid=request.OrderID.value,
+                                              side=request.Side.value,
+                                              sendingtime=request.Header.SendingTime.value)
+            elif request.MsgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+                order_request = OrderRequests(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                              msgtype=request.MsgType,
+                                              exchange=request.Instrument.SecurityExchange.value,
+                                              instmt_name=request.Instrument.Symbol.value,
+                                              clordid=request.OrdStatusReqID.value,
+                                              orderid=request.OrderID.value,
+                                              sendingtime=request.Header.SendingTime.value)
+            else:
+                assert False, "MsgType (%s) not yet implemented." % request.MsgType
+
+            self.__client.insert(order_request)
+
+            # Update active orders
             active_order = ActiveOrders(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
                                         exchange=report.Instrument.SecurityExchange.value,
                                         instmt_name=report.Instrument.Symbol.value,
                                         orderid=report.OrderID.value,
+                                        side=report.Side.value,
                                         price=report.Price.value,
                                         orderqty=report.OrderQtyData.OrderQty.value,
                                         cumqty=report.CumQty.value,
@@ -168,6 +219,8 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
                                         avgpx=report.AvgPx.value,
                                         ordstatus=report.OrdStatus.value,
                                         exectype=report.ExecType.value,
+                                        ordtype=report.OrdType.value,
+                                        timeinforce=report.TimeInForce.value,
                                         clordid=report.ClOrdID.value,
                                         transacttime=report.TransactTime.value)
 
