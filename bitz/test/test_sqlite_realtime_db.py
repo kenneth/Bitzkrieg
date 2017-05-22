@@ -1,7 +1,6 @@
 from bitz.realtime_database import SqliteRealtimeDatabase
 from bitz.fix_message_factory import FixMessageFactory
-from bitz.db_records import ActiveOrders
-from bitz.db_records import Balances
+from bitz.db_records import ActiveOrders, Balances
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from uuid import uuid4 as uuid
 from datetime import datetime
