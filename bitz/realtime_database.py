@@ -1,7 +1,7 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.sql_client import SqliteClient
-from bitz.db_records import ActiveOrders, OrderRequests
+from bitz.db_records import ActiveOrders, Balances, OrderRequests
 from bitz.util import fixmsg2dict
 from typing import Union
 from datetime import datetime
@@ -20,6 +20,9 @@ class AbstractRealtimeDatabase(object):
         # Execution report cache. (OrderID, Exchange, Instmt) is the key, while the latest execution report
         # is the value
         self._execution_report_cache = {}
+        # Position report cache. (Exchange) is the key, while the request is the latest position report
+        # Assuming the position report covers all currency
+        self._position_report_cache = {}
 
     def connect(self, **kwargs):
         """
@@ -28,7 +31,14 @@ class AbstractRealtimeDatabase(object):
         """
         raise NotImplementedError("Not yet implemented")
 
-    def update(self, request, exe_report: Fix.Messages.ExecutionReport):
+    def update_order(self, request, exe_report: Fix.Messages.ExecutionReport):
+        """
+        Update the latest order information
+        :param exe_report: Execution report
+        """
+        raise NotImplementedError("Not yet implemented")
+
+    def update_balances(self, request, pos_report: Fix.Messages.PositionReport):
         """
         Update the latest order information
         :param exe_report: Execution report
@@ -71,6 +81,12 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
                 file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._execution_report_cache[key][-1])))
             file.close()
 
+            file = open(os.path.join(self.__output_path, 'position_report_cache_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S')),
+                        'w+')
+            for key in sorted(self._position_report_cache.keys()):
+                file.write('\'%s\',%s\n' % (key, fixmsg2dict(self._position_report_cache[key][-1])))
+            file.close()
+
     def connect(self, **kwargs):
         """
         Connect to the database
@@ -82,7 +98,7 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             self.__output_path = ''
             assert False, "Invalid output path (%s)" % prev_path
 
-    def update(self, request, response: Union[Fix.Messages.ExecutionReport, Fix.Messages.OrderCancelReject]):
+    def update_order(self, request, response: Union[Fix.Messages.ExecutionReport, Fix.Messages.OrderCancelReject]):
         """
         Update the latest order information
         :param response: Execution report
@@ -98,6 +114,15 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
                 assert response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED, \
                         "ExecType(%s) is not rejected at ER (%s)" % (response.ExecType.value, response.ExecID.value)
+
+    def update_balances(self, request, pos_report: Fix.Messages.PositionReport):
+        """
+        Update the latest balances  information
+        :param pos_report: Position report
+        """
+        if pos_report.MsgType != Fix.Tags.MsgType.Values.POSITIONREPORT:
+            NotImplementedError("Unknown Fix Message Type")
+        self._position_report_cache.setdefault(pos_report.Instrument.SecurityExchange.value, []).append(pos_report)
 
     def get_latest_by_order_id(self, request):
         """
@@ -144,14 +169,15 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
         path = kwargs['path']
         self.__client.connect(path=path)
         self.__client.create(ActiveOrders)
+        self.__client.create(Balances)
         self.__client.create(OrderRequests)
 
-    def update(self, request, report: Fix.Messages.ExecutionReport):
+    def update_order(self, request, report: Fix.Messages.ExecutionReport):
         """
         Update the latest order information
         :param exe_report: Execution report
         """
-        InternalRealtimeDatabase.update(self, request, report)
+        InternalRealtimeDatabase.update_order(self, request, report)
 
         # Update order requests
         if request.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
@@ -220,6 +246,43 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
                                     transacttime=report.TransactTime.value)
 
         self.__client.insert(active_order)
+
+    def update_balances(self, request, pos_report: Fix.Messages.PositionReport):
+        """
+        Update the latest balances  information
+        :param pos_report: Position report
+        """
+        if pos_report.MsgType != Fix.Tags.MsgType.Values.POSITIONREPORT:
+            NotImplementedError("Unknown Fix Message Type")
+
+        InternalRealtimeDatabase.update_balances(self, request, pos_report)
+
+        balances = {}
+        available_balances = {}
+
+        for position in pos_report.PositionAmountData.groups:
+            currency = position.PositionCurrency.value.upper()
+            value = position.PosAmt.value
+            type = position.PosAmtType.value
+
+            if type == Fix.Tags.PosAmtType.Values.CASH_AMOUNT:
+                balances[currency] = value
+            elif type == Fix.Tags.PosAmtType.Values.FINAL_MARK_TO_MARKET_AMOUNT:
+                available_balances[currency] = value
+            else:
+                assert False, "Invalid position amount type %d" % type
+
+        for currency in available_balances.keys():
+            if currency not in balances.keys():
+                raise NotImplementedError("Currency %s has available balances but no balances" % currency)
+
+        for currency in balances.keys():
+            ccyBalance = Balances(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                  exchange=pos_report.Instrument.SecurityExchange.value,
+                                  ccy=currency,
+                                  balance=balances[currency],
+                                  availableBalance=available_balances.get(currency, float('nan')))
+            self.__client.insert(ccyBalance)
 
     def get_database(self):
         """
