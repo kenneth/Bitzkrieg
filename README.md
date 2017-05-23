@@ -33,14 +33,14 @@ Note: Currently the beta version has not been put to PyPI.
 
 ## Functionality
 
-1. Single market making
+1. Trading application
 
 First, set up the configuration same as [config.ini](config.ini).
 
 Run the command
 
 ```
-smm -config <your config file>
+bitz -config <your config file>
 ```
 
 2. Gateway dependent
@@ -71,14 +71,6 @@ Currently the below gateways are supported:
 
 - Gatecoin
 
-## Database
-
-Currently, it is supported to store the request and response messages into a [Redis](https://redis.io/) database. The requests and responses are stored into the same database but different indexes.
-
-The requests are stored with request ID (e.g. ClOrdID) as the key and the FIX message as the value.
-
-The responses are stored with execution ID (e.g. ExecID) as the key and the FIX message as the value.
-
 ## Market Data Feed
 
 Currently, it is supported to receive the market data feed from [BitcoinExchangeFH](https://github.com/gavincyi/BitcoinExchangeFH). 
@@ -89,12 +81,22 @@ The configuration file contains the setup parameters of market data feed, databa
 
 | Section | Item | Description |
 | --- | --- | --- |
-|**Database**|Port|The port of the Redis database.|
-| |Request|The database index of the requests.|
-| |Response|The database index of the responses.|
-|**MarketFeed**|Host|The host of the market data feed, in format of "address:port".|
-|**Gatecoin**|public|Your public key provided by Gatecoin.|
-| |private|Your private key provided by Gatecoin.|
+|**MarketFeed**|Type=file|For backtesting use. Market data sourced from files.|
+||Files|List of file names.|
+||Type=bcfh|Bitcoinexchange feed handler.|
+||Host|ZeroMQ host, e.g. "tcp://localhost:6001"|
+|**JournalDatabase**|Type=Internal|Internal memory cache.|
+||Path|Output file path when the process exits cleanly.|
+|**RealtimeDatabase**|Type=Internal|Internal memory cache.|
+||Path|Output file path when the process exits cleanly.|
+||Type=Sqlite|Sqlite database. Updated in real time.|
+||Path|Output file path when the process exits cleanly.|
+|**Instrument.**||Unique name for the instrument section. Prefix of "Instrument."|
+||Exchange|Exchange name.|
+||Name|Instrument name.|
+||USDRate|USD rate.|
+||PriceMinSize|Price minimum size, e.g. 0.01|
+||QtyMinSize|Quantity minimum size, e.g. 0.000001|
 
 ## Contact
 

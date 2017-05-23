@@ -69,7 +69,7 @@ class TClassExchGatecoinEig(ExchGatecoinEig):
             ret = { "clOrderId" : "%d" % order.order_id, 
                      "responseStatus" : { "message" : "OK" } }
             return ret
-        elif command == "Trade/Orders" and httpMethod == "DELETE":
+        elif "Trade/Orders" in command and httpMethod == "DELETE":
             # Delete orders
             for key in ["clOrderId"]:
                 assert key in params.keys(), \
@@ -82,7 +82,7 @@ class TClassExchGatecoinEig(ExchGatecoinEig):
                 ret = { "responseStatus" : { "message" : "Failed" } }
                 
             return ret
-        elif command == "Trade/Orders" and httpMethod == "GET":
+        elif "Trade/Orders" in command and httpMethod == "GET":
             # Get order status
             orders = self.generate_all_orders()
             if "orderID" in params.keys():

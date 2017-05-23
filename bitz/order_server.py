@@ -1,13 +1,12 @@
 #!/usr/bin/python3
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from bitz.logger import Logger
-from bitz.journal_db import AbstractJournalDatabase
+from bitz.journal_database import AbstractJournalDatabase
 from bitz.realtime_database import AbstractRealtimeDatabase
 from bitz.risk_manager import RiskManager
 from bitz.market_data_feed import MarketDataFeed
 from bitz.util import update_fixtime, fixmsg2dict
 from bitz.market_data import Snapshot
-from bitz.realtime_strategy import RealTimeStrategy
 from datetime import datetime
 from typing import Union, List, Tuple
 from uuid import uuid4 as uuid
@@ -49,6 +48,13 @@ class OrderServer:
         self.current_exec_id = 0
         self.market_data_feed = market_data_feed
 
+    def __del__(self):
+        """
+        Destructor
+        """
+        if self.market_data_feed is not None:
+            self.market_data_feed.disconnect()
+
     def now(self):
         """
         Get the server current time.
@@ -67,7 +73,11 @@ class OrderServer:
         """
         Get market data feed snapshot
         """
-        return self.market_data_feed.get_snapshot(timeout)
+        snapshot = self.market_data_feed.get_snapshot(timeout)
+        if isinstance(snapshot, Snapshot):
+            for exch_name, exch in self.exchanges.items():
+                exch.snapshot_updated(snapshot)
+        return snapshot
 
     def get_exchange_snapshot(self, exchange, instmt_name) -> Snapshot:
         """
@@ -126,36 +136,26 @@ class OrderServer:
         self.exchanges[name] = exchange
         self.risk_manager.register_exchange(name)
 
-    def register_strategy(self, strategy: RealTimeStrategy, instmt):
-        """
-        Register strategy
-        :param strategy: Strategy
-        :param instmt: Instrument
-        """
-        self.risk_manager.register_strategy(strategy, instmt)
-
-
     def initialize_exchange_risk(self):
         """
         Initialize exchange risk. This method is called when all the gateways are registered.
         """
         for exchange_name, exchange in self.exchanges.items():
             req = Fix.Messages.RequestForPositions()
-            req.PosReqID.value = exchange_name + self.now_string()
+            req.PosReqID.value = self.now_string() + str(uuid())
             req.Instrument.SecurityExchange.value = exchange_name
-            update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now())
+            update_fixtime(req, Fix.Tags.TransactTime.Tag, self.now_string())
             responses, err_msg = self.request(req)
             assert err_msg == "", "Error (%s) is found." % err_msg
             assert len(responses) == 1, "Expect to have only one response."
 
-    def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle, strategy):
+    def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle):
         """
         Valid the risk limit
         :param message: New order single
-        :param strategy: Strategy
         :return: True if pass.
         """
-        return self.risk_manager.risk_check(message, strategy)
+        return self.risk_manager.risk_check(message)
 
     def __is_valid_exchange(self, message):
         """
@@ -182,8 +182,18 @@ class OrderServer:
             if message.ExecID.value is None:
                 message.ExecID.value = '%s%s' % (self.now_string(), uuid())
             key = message.ExecID.value
+        elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+            key = message.ClOrdID.value + self.now_string()
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             key = message.PosReqID.value
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+            key = message.OrdStatusReqID.value
+        elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
+            key = message.PosMaintRptID.value
+        else:
+            raise NotImplementedError("MsgType (%s) has not yet been implemented." % msgType)
+
+        assert key is not None, "MsgType (%s) has an empty key.\n%s" % (msgType, fixmsg2dict(message))
 
         return self.journal_db.insert(key, fixmsg2dict(message))
 
@@ -236,17 +246,53 @@ class OrderServer:
         """
         msgType = message.MsgType
 
-        # Update risk exposure
-        exchange = message.Instrument.SecurityExchange.value
-        exchange_risk = self.risk_manager.get_exchange_balance(exchange)
-        RiskManager.update_risk_exposure_by_message(message, exchange_risk)
-
         # Check the message type
         if msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
+            if message.OrdStatus.value in [Fix.Tags.OrdStatus.Values.CANCELED,
+                                           Fix.Tags.OrdStatus.Values.FILLED,
+                                           Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED]:
+                self.__supply_information_if_missing(request, message)
+            self.__supply_transacttime_if_missing(message)
             self.realtime_db.update(request, message)
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
             pass
+        elif msgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+            self.__supply_transacttime_if_missing(message)
         else:
             raise NotImplementedError("Message type %s has not yet been implemented" % message.MsgType)
+
+        # Update risk exposure
+        if msgType not in [Fix.Tags.MsgType.Values.ORDERCANCELREJECT]:
+            exchange = message.Instrument.SecurityExchange.value
+            exchange_risk = self.risk_manager.get_exchange_balance(exchange)
+            RiskManager.update_risk_exposure_by_message(message, exchange_risk)
+
+    def __supply_information_if_missing(self, req, message: Fix.Messages.ExecutionReport):
+        """
+        Supply the order information, e.g. orderqty and cumqty, if missing
+        :param message: Message
+        """
+        latest_status = self.realtime_db.get_latest_by_order_id(req)
+        if latest_status is not None:
+            if message.Side.value is None:
+                message.Side.value = latest_status.Side.value
+            if message.Price.value is None:
+                message.Price.value = latest_status.Price.value
+            if message.OrderQtyData.OrderQty.value is None:
+                message.OrderQtyData.OrderQty.value = latest_status.OrderQtyData.OrderQty.value
+            if message.CumQty.value is None:
+                message.CumQty.value = latest_status.CumQty.value
+            if message.AvgPx.value is None:
+                message.AvgPx.value = latest_status.AvgPx.value
+            if message.LeavesQty.value is None:
+                message.LeavesQty.value = latest_status.LeavesQty.value
+
+    def __supply_transacttime_if_missing(self, message):
+        """
+        Supply the tag 60 if missing
+        :param message: Message
+        """
+        if message.TransactTime.value is None:
+            message.TransactTime.value = self.now_string()
 
 

@@ -1,6 +1,6 @@
 #!/bin/python
 from bitz.order_server import OrderServer
-from bitz.journal_db import InternalJournalDatabase
+from bitz.journal_database import InternalJournalDatabase
 from bitz.realtime_database import InternalRealtimeDatabase
 from bitz.risk_manager import RiskManager
 from bitz.file_market_data_feed import FileMarketDataFeed
@@ -52,7 +52,7 @@ class TOrderServer(unittest.TestCase):
         new_order_single.Price.value = price
         new_order_single.TriggeringInstruction.TriggerPrice.value = price
         new_order_single.Side.value = side
-        new_order_single.ClOrdID.value = uuid()
+        new_order_single.ClOrdID.value = str(uuid())
         new_order_single.OrderQtyData.OrderQty.value = qty
         new_order_single.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
         new_order_single.TimeInForce.value = Fix.Tags.TimeInForce.Values.DAY
@@ -81,6 +81,21 @@ class TOrderServer(unittest.TestCase):
                     break
 
         return new_order_single
+
+    @classmethod
+    def __create_order_cancel_request(cls, last_update: Fix.Messages.ExecutionReport) -> Fix.Messages.OrderCancelRequest:
+        """
+        Create order cancel request
+        :param last_update: Last update
+        :return: Order cancel request
+        """
+        order_cancel_request = Fix.Messages.OrderCancelRequest()
+        order_cancel_request.ClOrdID.value = str(uuid())
+        order_cancel_request.Instrument.Symbol.value = last_update.Instrument.Symbol.value
+        order_cancel_request.Instrument.SecurityExchange.value = last_update.Instrument.SecurityExchange.value
+        order_cancel_request.OrderID.value = last_update.OrderID.value
+        order_cancel_request.Side.value = last_update.Side.value
+        return order_cancel_request
 
     def test_register_gateway(self):
         """
@@ -129,6 +144,7 @@ class TOrderServer(unittest.TestCase):
         self.assertEqual(hkd_risk.balance, 2000)
         self.assertEqual(hkd_risk.available_balance, 2000 - new_order_single.Price.value * new_order_single.OrderQtyData.OrderQty.value)
         # Assert response
+        self.assertEqual(response.MsgType, Fix.Tags.MsgType.Values.EXECUTIONREPORT)
         self.assertEqual(response.Instrument.Symbol.value, new_order_single.Instrument.Symbol.value)
         self.assertEqual(response.Instrument.SecurityExchange.value, new_order_single.Instrument.SecurityExchange.value)
         self.assertEqual(response.OrdStatus.value, Fix.Tags.OrdStatus.Values.NEW)
@@ -139,7 +155,72 @@ class TOrderServer(unittest.TestCase):
         self.assertEqual(response.LeavesQty.value, new_order_single.OrderQtyData.OrderQty.value)
         self.assertEqual(response.CumQty.value, 0)
 
+    def test_cancel_order(self):
+        """
+        Test to cancel an order
+        :return:
+        """
+        order_server, gateway = self.__initialize_order_server()
+        order_server.initialize_exchange_risk()
 
+        # Send the new order single request
+        new_order_single = self.__create_new_order_single(order_server)
+        responses, err_msg = order_server.request(new_order_single)
+
+        # Send the order cancel request
+        order_cancel_request = self.__create_order_cancel_request(responses[0])
+        responses, err_msg = order_server.request(order_cancel_request)
+
+        # Check the result
+        self.assertEqual(len(responses), 1)
+        response = responses[0]
+        # Assert risk
+        hkd_risk = order_server.risk_manager.get_exchange_balance(self.exchange_name, 'USD')
+        self.assertEqual(hkd_risk.balance, 2000)
+        self.assertEqual(hkd_risk.available_balance, 2000)
+        # Assert response
+        self.assertEqual(response.MsgType, Fix.Tags.MsgType.Values.EXECUTIONREPORT)
+        self.assertEqual(response.Instrument.Symbol.value, new_order_single.Instrument.Symbol.value)
+        self.assertEqual(response.Instrument.SecurityExchange.value, new_order_single.Instrument.SecurityExchange.value)
+        self.assertEqual(response.OrdStatus.value, Fix.Tags.OrdStatus.Values.CANCELED)
+        self.assertEqual(response.ExecType.value, Fix.Tags.ExecType.Values.CANCELED)
+        self.assertEqual(response.Price.value, new_order_single.Price.value)
+        self.assertEqual(response.OrderQtyData.OrderQty.value, new_order_single.OrderQtyData.OrderQty.value)
+        self.assertEqual(response.ClOrdID.value, order_cancel_request.ClOrdID.value)
+        self.assertEqual(response.CumQty.value, 0)
+        self.assertEqual(response.LeavesQty.value, 0)
+        self.assertEqual(response.CumQty.value, 0)
+
+    def test_cancel_order_reject(self):
+        """
+        Test to cancel an order
+        :return:
+        """
+        order_server, gateway = self.__initialize_order_server()
+        order_server.initialize_exchange_risk()
+
+        # Send the new order single request
+        new_order_single = self.__create_new_order_single(order_server)
+        responses, err_msg = order_server.request(new_order_single)
+
+        # Send the order cancel request
+        order_cancel_request = self.__create_order_cancel_request(responses[0])
+        responses, err_msg = order_server.request(order_cancel_request)
+
+        # Send the order cancel request again. Expects rejected.
+        order_cancel_request = self.__create_order_cancel_request(responses[0])
+        responses, err_msg = order_server.request(order_cancel_request)
+
+        # Check the result
+        self.assertEqual(len(responses), 1)
+        response = responses[0]
+        # Assert risk
+        hkd_risk = order_server.risk_manager.get_exchange_balance(self.exchange_name, 'USD')
+        self.assertEqual(hkd_risk.balance, 2000)
+        self.assertEqual(hkd_risk.available_balance, 2000)
+        # Assert response
+        self.assertEqual(response.MsgType, Fix.Tags.MsgType.Values.ORDERCANCELREJECT)
+        self.assertEqual(response.ClOrdID.value, order_cancel_request.ClOrdID.value)
 
 
 

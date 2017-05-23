@@ -1,4 +1,9 @@
 #!/bin/python
+from datetime import datetime
+import os
+import json
+
+
 class AbstractJournalDatabase(object):
     """
     Abstract journal database
@@ -42,13 +47,30 @@ class InternalJournalDatabase(AbstractJournalDatabase):
         Constructor
         """
         self.__journal = {}
+        self.__output_path = ''
+
+    def __del__(self):
+        """
+        Destructor
+        :return:
+        """
+        if self.__output_path != '':
+            datetime_handler = lambda obj: obj.isoformat() if hasattr(obj, 'isoformat') else obj
+            name = os.path.join(self.__output_path, 'journal_db_%s.db' % datetime.utcnow().strftime('%Y%m%d%H%M%S'))
+            file = open(name, 'w+')
+            file.write(json.dumps(self.__journal, indent=2, default=datetime_handler))
+            file.close()
 
     def connect(self, **kwargs):
         """
         Connect
         :param kwargs: Arguments
         """
-        pass
+        self.__output_path = kwargs.setdefault('path', '')
+        if not os.path.isdir(self.__output_path):
+            prev_path = self.__output_path
+            self.__output_path = ''
+            assert False, "Invalid output path (%s)" % prev_path
 
     def insert(self, key, value):
         """
@@ -56,6 +78,7 @@ class InternalJournalDatabase(AbstractJournalDatabase):
         :param key: Key
         :param value: Value
         """
+        assert key not in self.__journal.keys(), "Duplicated key %s" % key
         self.__journal[key] = value
         return True
 

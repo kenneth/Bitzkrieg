@@ -5,12 +5,12 @@ from datetime import datetime
 
 def update_fixtime(msg, tag, hopcompid='', now_time=None):
     if tag == Fix.Tags.SendingTime.Tag:
-        msg.Header.SendingTime.value = datetime.utcnow() if now_time is None else now_time
+        msg.Header.SendingTime.value = datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f") if now_time is None else now_time
     elif tag == Fix.Tags.TransactTime.Tag:
-        msg.TransactTime.value = datetime.utcnow() if now_time is None else now_time
+        msg.TransactTime.value = datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f") if now_time is None else now_time
     elif tag == Fix.Tags.HopSendingTime.Tag and hopcompid != '':
         hop_group = Fix.Components.HopGrp.NoHops()
-        hop_group.HopSendingTime.value = datetime.utcnow() if now_time is None else now_time
+        hop_group.HopSendingTime.value = datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f") if now_time is None else now_time
         hop_group.HopCompID.value = hopcompid
         msg.Header.HopGrp.groups.append(hop_group)
     else:
@@ -22,14 +22,21 @@ def fixmsg2dict(msg):
         ret = []
         for group in msg.groups:
             ret.append(fixmsg2dict(group))
-            
-        return ret
+
+        if len(ret) > 0:
+            return ret
+        else:
+            return None
     elif isinstance(msg, Message) or isinstance(msg, Component) or isinstance(msg, Fix.Header):
         ret = {}
         for name, attr in msg.__dict__.items():
-            ret[name] = fixmsg2dict(attr)
-            
-        return ret
+            value = fixmsg2dict(attr)
+            if value is not None:
+                ret[name] = value
+        if len(ret) > 0:
+            return ret
+        else:
+            return None
     elif isinstance(msg, Tag):
         return msg.value
     elif isinstance(msg, bool):

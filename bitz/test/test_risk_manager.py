@@ -1,7 +1,5 @@
 #!/bin/python
 from bitz.risk_manager import RiskManager
-from bitz.logger import ConsoleLogger
-from bitz.realtime_strategy import RealTimeStrategy
 from bitz.instrument import Instrument
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from uuid import uuid4 as uuid
@@ -14,15 +12,16 @@ class TRiskManager(unittest.TestCase):
     price = 1200
     qty = 1.5
 
-    @staticmethod
-    def __create_position_report() -> Fix.Messages.PositionReport:
+    @classmethod
+    def __create_position_report(cls) -> Fix.Messages.PositionReport:
         """
         Create position report
         :return: Position report message
         """
         message = Fix.Messages.PositionReport()
-        message.Instrument.Symbol = TRiskManager.instmt_name
-        message.Instrument.SecurityExchange = TRiskManager.exchange_name
+        instmt = cls.__create_instrument()
+        message.Instrument.Symbol = instmt.instmt_name
+        message.Instrument.SecurityExchange = instmt.exchange
 
         for currency, total_balance, available_balance in \
                 [('USD', 2000, 2000),
@@ -44,16 +43,17 @@ class TRiskManager(unittest.TestCase):
 
         return message
 
-    @staticmethod
-    def __create_new_order_single() -> Fix.Messages.NewOrderSingle:
+    @classmethod
+    def __create_new_order_single(cls) -> Fix.Messages.NewOrderSingle:
         """
         Create a new order single
         :return: New order single
         """
         new_order_single = Fix.Messages.NewOrderSingle()
+        instmt = cls.__create_instrument()
         side = Fix.Tags.Side.Values.BUY
-        new_order_single.Instrument.Symbol.value = TRiskManager.instmt_name
-        new_order_single.Instrument.SecurityExchange.value = TRiskManager.exchange_name
+        new_order_single.Instrument.Symbol.value = instmt.instmt_name
+        new_order_single.Instrument.SecurityExchange.value = instmt.exchange
         new_order_single.Price.value = TRiskManager.price
         new_order_single.TriggeringInstruction.TriggerPrice.value = TRiskManager.price
         new_order_single.Side.value = side
@@ -64,16 +64,17 @@ class TRiskManager(unittest.TestCase):
 
         return new_order_single
 
-    @staticmethod
-    def __create_order_reject() -> Fix.Messages.ExecutionReport:
+    @classmethod
+    def __create_order_reject(cls) -> Fix.Messages.ExecutionReport:
         """
         Create order reject
         :return: Order reject
         """
         order_reject = Fix.Messages.ExecutionReport()
+        instmt = cls.__create_instrument()
         side = Fix.Tags.Side.Values.BUY
-        order_reject.Instrument.Symbol.value = TRiskManager.instmt_name
-        order_reject.Instrument.SecurityExchange.value = TRiskManager.exchange_name
+        order_reject.Instrument.Symbol.value = instmt.instmt_name
+        order_reject.Instrument.SecurityExchange.value = instmt.exchange
         order_reject.Price.value = TRiskManager.price
         order_reject.Side.value = side
         order_reject.ClOrdID.value = uuid()
@@ -85,8 +86,8 @@ class TRiskManager(unittest.TestCase):
 
         return order_reject
 
-    @staticmethod
-    def __create_order_ack() -> Fix.Messages.ExecutionReport:
+    @classmethod
+    def __create_order_ack(cls) -> Fix.Messages.ExecutionReport:
         """
         Create order reject
         :return: Order reject
@@ -108,20 +109,30 @@ class TRiskManager(unittest.TestCase):
 
         return order_ack
 
-    @staticmethod
-    def __create_order_cancel_request() -> Fix.Messages.OrderCancelRequest:
+    @classmethod
+    def __create_order_cancel_request(cls) -> Fix.Messages.OrderCancelRequest:
         """
         Create a new order single
         :return: New order single
         """
         order_cancel_request = Fix.Messages.OrderCancelRequest()
+        instmt = cls.__create_instrument()
         side = Fix.Tags.Side.Values.BUY
-        order_cancel_request.Instrument.Symbol.value = TRiskManager.instmt_name
-        order_cancel_request.Instrument.SecurityExchange.value = TRiskManager.exchange_name
+        order_cancel_request.Instrument.Symbol.value = instmt.instmt_name
+        order_cancel_request.Instrument.SecurityExchange.value = instmt.exchange
         order_cancel_request.Side.value = side
         order_cancel_request.ClOrdID.value = uuid()
 
         return order_cancel_request
+
+    @classmethod
+    def __create_instrument(cls) -> Instrument:
+        """
+        Create instrument
+        :return: Instrument
+        """
+        return Instrument(cls.exchange_name, cls.instmt_name, 1, 0.0001, 0.00001)
+
 
     def test_position_report(self):
         """
@@ -402,114 +413,57 @@ class TRiskManager(unittest.TestCase):
         Test risk check on buy side
         """
         risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 2000)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
         # Risk check
         new_order_single = self.__create_new_order_single()
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
+        self.assertTrue(risk_manager.risk_check(new_order_single))
 
     def test_risk_check_sell_pass(self):
         """
         Test risk check on sell side
         """
         risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 2000)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
+        instmt = self.__create_instrument()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
         # Risk check
         new_order_single = self.__create_new_order_single()
         new_order_single.Side.value = Fix.Tags.Side.Values.SELL
         new_order_single.OrderQtyData.OrderQty.value = 0.5
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
-
-    def test_risk_check_buy_fail_strategy_risk(self):
-        """
-        Test risk check on buy side and fail on the strategy risk check
-        """
-        risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 500)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
-        message = self.__create_position_report()
-        exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
-        risk_manager.update_risk_exposure_by_message(message, exchange_risk)
-
-        # Risk check
-        new_order_single = self.__create_new_order_single()
-        new_order_single.OrderQtyData.OrderQty.value = 0.25
-        # Pass on the first risk check
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
-        # Update the exchange and strategy risk check
-        risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
-        risk_manager.update_risk_exposure_by_message(new_order_single, strategy_risk)
-        # Fail on the strategy check
-        self.assertFalse(risk_manager.risk_check(new_order_single, strategy))
-
-    def test_risk_check_sell_fail_strategy_risk(self):
-        """
-        Test risk check on sell side and fail on the strategy risk check
-        """
-        risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 500)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
-        message = self.__create_position_report()
-        exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
-        risk_manager.update_risk_exposure_by_message(message, exchange_risk)
-
-        # Risk check
-        new_order_single = self.__create_new_order_single()
-        new_order_single.Side.value = Fix.Tags.Side.Values.SELL
-        new_order_single.OrderQtyData.OrderQty.value = 0.25
-        # Pass on the first risk check
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
-        # Update the exchange and strategy risk check
-        risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
-        risk_manager.update_risk_exposure_by_message(new_order_single, strategy_risk)
-        # Fail on the strategy check
-        self.assertFalse(risk_manager.risk_check(new_order_single, strategy))
+        self.assertTrue(risk_manager.risk_check(new_order_single))
 
     def test_risk_check_buy_fail_exchange_risk(self):
         """
         Test risk check on buy side and fail on the strategy risk check
         """
         risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 5000)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
+        instmt = self.__create_instrument()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
         # Risk check
         new_order_single = self.__create_new_order_single()
         # Pass on the first risk check
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
+        self.assertTrue(risk_manager.risk_check(new_order_single))
         # Update the exchange and strategy risk check
         risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
-        risk_manager.update_risk_exposure_by_message(new_order_single, strategy_risk)
         # Fail on the exchange risk
-        self.assertFalse(risk_manager.risk_check(new_order_single, strategy))
+        self.assertFalse(risk_manager.risk_check(new_order_single))
 
     def test_risk_check_sell_fail_exchange_risk(self):
         """
         Test risk check on buy side and fail on the strategy risk check
         """
         risk_manager = RiskManager()
-        strategy = RealTimeStrategy('TStrategy', None, None, 5000)
-        instmt = Instrument(TRiskManager.exchange_name, TRiskManager.instmt_name, 1, 0.01)
+        instmt = self.__create_instrument()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
-        strategy_risk = risk_manager.register_strategy(strategy, instmt)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
         # Risk check
@@ -517,9 +471,8 @@ class TRiskManager(unittest.TestCase):
         new_order_single.Side.value = Fix.Tags.Side.Values.SELL
         new_order_single.OrderQtyData.OrderQty.value = 0.75
         # Pass on the first risk check
-        self.assertTrue(risk_manager.risk_check(new_order_single, strategy))
+        self.assertTrue(risk_manager.risk_check(new_order_single))
         # Update the exchange and strategy risk check
         risk_manager.update_risk_exposure_by_message(new_order_single, exchange_risk)
-        risk_manager.update_risk_exposure_by_message(new_order_single, strategy_risk)
         # Fail on the exchange risk
-        self.assertFalse(risk_manager.risk_check(new_order_single, strategy))
+        self.assertFalse(risk_manager.risk_check(new_order_single))
