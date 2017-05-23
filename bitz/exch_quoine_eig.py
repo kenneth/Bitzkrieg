@@ -7,7 +7,6 @@ import urllib
 import requests
 import hashlib
 import json
-import 
 
 class ExchQuoineEig(object):
     """
