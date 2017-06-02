@@ -49,8 +49,6 @@ class ExchGatecoinEig(object):
         'Content-Type':'application/json'
         }
         
-        data = None
-        
         if httpMethod == "DELETE":
           R = requests.delete
         elif httpMethod == "GET":

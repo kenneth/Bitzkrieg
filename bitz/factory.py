@@ -16,6 +16,7 @@ import os
 # Exchanges
 from bitz.exch_gatecoin_eig import ExchGatecoinEig
 from bitz.exch_gatecoin_eis import ExchGatecoinEis
+from bitz.exch_bitmex import ExchBitmex
 
 # Strategies
 from bitz.single_market_making import SingleMarketMaking
@@ -137,6 +138,10 @@ class Factory(object):
                     eig = ExchGatecoinEig(key=public_key, secret=private_key, logger=logger)
                     eis = ExchGatecoinEis(eig)
                     return eis
+                elif exchange_name == 'BitMEX':
+                    public_key = self.__config.get(exchange_name, 'public')
+                    private_key = self.__config.get(exchange_name, 'private')
+                    return ExchBitmex(logger=logger, public_key=public_key, private_key=private_key)
                 else:
                     raise NotImplementedError("Exchange (%s) not yet implemented." % exchange_name)
             else:
