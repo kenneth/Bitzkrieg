@@ -1,4 +1,5 @@
 #!/bin/python
+from bitz.rest_api_connector import RestApiConnector
 from bitz.logger import ConsoleLogger
 from bitz.exchange import Exchange
 from bitz.FIX50SP2 import FIX50SP2 as Fix
@@ -6,81 +7,9 @@ from bitz.fix_message_factory import FixMessageFactory
 from bitz.util import fixmsg2dict
 import hashlib
 import hmac
-import json
-import requests
-from time import time
+from requests import auth
 from urllib.parse import urlparse
 from uuid import uuid4 as uuid
-
-class RestApiConnector(object):
-    """
-    REST API connector
-    """
-    class HTTPMethod:
-        GET = 0,
-        DELETE = 1,
-        POST = 2
-
-    def __init__(self, logger, public_key, private_key, url):
-        """
-        Constructor
-        """
-        self.logger = logger
-        self.url = url
-        self._public_key = public_key
-        self._private_key = private_key
-
-    @classmethod
-    def generate_nonce(cls):
-        """
-        Generate an increasing unique number
-        """
-        return int(round(time() * 1000))
-
-    def generate_headers(self):
-        """
-        Generate headers
-        """
-        raise NotImplementedError("Not yet implemented.")
-
-    def generate_auth(self):
-        """
-        Generate authentication
-        """
-        raise NotImplementedError("Not yet implemented.")
-
-    def send_request(self, command, httpMethod: HTTPMethod, params=None):
-        """
-        Send request
-        :param command: API command
-        :param httpMethod: Http method
-        :param params: input parameters
-        :return: JSON object
-        """
-        url = self.url + command
-        headers = self.generate_headers()
-        auth = self.generate_auth()
-        data = "" if params is None else json.dumps(params)
-
-        if httpMethod == RestApiConnector.HTTPMethod.DELETE:
-            R = requests.delete
-        elif httpMethod == RestApiConnector.HTTPMethod.GET:
-            R = requests.get
-        elif httpMethod == RestApiConnector.HTTPMethod.POST:
-            R = requests.post
-
-        self.logger.info(self.__class__.__name__, 'OUT\nmethod=%s\nurl=%s\ndata=%s\nheaders=%s\n' % \
-                         (httpMethod, url, data, headers))
-        try:
-            if auth is None:
-                response = R(url, data=data, headers=headers)
-            else:
-                response = R(url, data=data, headers=headers, auth=auth)
-
-            self.logger.info(self.__class__.__name__, 'IN (%d)\n%s' % (response.status_code, response.text))
-            return response
-        except Exception as e:
-            return e
 
 class ExchBitmexRestApiConnector(RestApiConnector):
     """
@@ -113,7 +42,7 @@ class ExchBitmexRestApiConnector(RestApiConnector):
         signature = hmac.new(bytes(secret, 'utf8'), bytes(message, 'utf8'), digestmod=hashlib.sha256).hexdigest()
         return signature
 
-    class APIKeyAuth(requests.auth.AuthBase):
+    class APIKeyAuth(auth.AuthBase):
         """Attaches API Key Authentication to the given Request object."""
 
         def __init__(self, apiKey, apiSecret):
