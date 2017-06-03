@@ -123,12 +123,14 @@ class FixMessageFactory(object):
                                     symbol,
                                     exchange,
                                     orderid,
-                                    reqId):
+                                    reqId,
+                                    side=None):
         request = Fix.Messages.OrderStatusRequest()
         request.Instrument.Symbol.value = symbol
         request.Instrument.SecurityExchange.value = exchange
         request.OrderID.value = orderid
         request.OrdStatusReqID.value = reqId
+        request.Side.value = side
         return request
 
     @classmethod
@@ -154,12 +156,14 @@ class FixMessageFactory(object):
                                     exchange,
                                     symbol,
                                     orderid,
-                                    clordid):
+                                    clordid,
+                                    side=None):
         request = Fix.Messages.OrderCancelRequest()
         request.Instrument.SecurityExchange.value = exchange
         request.Instrument.Symbol.value= symbol
         request.OrderID.value = orderid
         request.ClOrdID.value = clordid
+        request.Side.value = side
         return request
 
     @classmethod
@@ -168,13 +172,16 @@ class FixMessageFactory(object):
                                    clordid,
                                    cancelrejreason=Fix.Tags.CxlRejReason.Values.TOO_LATE_TO_CANCEL,
                                    cancelrejresponseto=Fix.Tags.CxlRejResponseTo.Values.ORDER_CANCEL_REQUEST,
-                                   cancelrejtext=""):
+                                   cancelrejtext=None,
+                                   side=None):
         report = Fix.Messages.OrderCancelReject()
         report.OrderID.value = orderid
         report.ClOrdID.value = clordid
         report.CxlRejReason.value = cancelrejreason
         report.CxlRejResponseTo.value = cancelrejresponseto
         report.Text.value = cancelrejtext
+        report.Side.value = side
+        return report
 
     @classmethod
     def create_request_for_position(cls,

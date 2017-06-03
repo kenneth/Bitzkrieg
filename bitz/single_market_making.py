@@ -48,7 +48,12 @@ class SingleMarketMaking(RealTimeStrategy):
         self.market_data_stalled_time_sec = 30 * 60
         self.default_trading_qty = 0.006
         self.default_trade_side = SingleMarketMaking.TradeSide.BOTH
+
+        # Trading objects
         self.__open_orders = {}
+        self.__target_snapshot = None
+        self.__order_status_request = Fix.Messages.OrderStatusRequest()
+        self.__order_cancel_request = Fix.Messages.OrderCancelRequest()
 
     def init_parameters(self, **kwargs):
         """
@@ -72,127 +77,124 @@ class SingleMarketMaking(RealTimeStrategy):
             else:
                 raise NotImplementedError("Default trade side (%d) not implemented" % default_trade_side)
 
-    def monitor(self):
+    def init_strategy(self):
         """
-        Monitor the market
+        Initialize strategy
         """
         # Initialize orders
-        target_snapshot = None
-        order_status_request = Fix.Messages.OrderStatusRequest()
-        order_cancel_request = Fix.Messages.OrderCancelRequest()
-
         for side in [Fix.Tags.Side.Values.BUY, Fix.Tags.Side.Values.SELL]:
             if self.default_trade_side == SingleMarketMaking.TradeSide.BOTH or int(side) == self.default_trade_side:
                 order = self.__create_new_order_single(self.target_instmt, side)
                 self.__open_orders[order] = None
 
-        self.logger.info(self.__class__.__name__, "Start monitoring the market...")
+    def on_market_update(self, snapshot):
+        """
+        Callback when the market is updated.
+        :param snapshot: Market data snapshot
+        :return False for terminating running
+        """
+        # No open order and signaled to exit
+        if not self.__check_any_open_position() and not self.running:
+            return False
 
-        while True:
-            snapshot = self.ordsvr.get_latest_snapshot(200000)
+        # Flow back to the beginning of the loop if no snapshot is updated
+        if snapshot is None:
+            self.running = False
+            return False
+        elif snapshot == Snapshot.UpdateType.NONE and not self.__check_any_open_position():
+            return True
 
-            # No open order and signaled to exit
-            if not self.__check_any_open_position() and not self.running:
-                break
+        # Update target snapshot
+        if self.__target_snapshot is None:
+            self.__target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
+            if self.__target_snapshot is None:
+                return True
+            else:
+                self.logger.info(self.__class__.__name__,
+                                 "Target instrument %s/%s has received the first snapshot" % \
+                                 (self.target_instmt.exchange, self.target_instmt.instmt_name))
 
-            # Flow back to the beginning of the loop if no snapshot is updated
-            if snapshot is None:
-                self.running = False
-                break
-            elif snapshot == Snapshot.UpdateType.NONE and not self.__check_any_open_position():
-                continue
+        # Calculate the market price
+        # 1. If there is no open orders,
+        #   a) Initialize the buy and sell order by the place_price
+        #   b) Check the risk limit to decide which side can be placed
+        #   c) Send the order to the order server. If the request succeeds, get the order ack.
+        # 2. If there is open orders,
+        #   a) Monitor if the order has been filled by when the previous depth is different from the current one
+        #   b) If the market bid/ask is lower/larger than the placed bid/ask price, cancel the order.
+        for order, open_order in self.__open_orders.items():
+            if open_order is not None:
+                # Cancel the order if the order is still open and one of the following conditions is fulfilled
+                # 1. Not at the best price
+                # 2. Market status stalled for a while
+                # 3. Program exit
+                # 4. Too far from the second best price
 
-            # Update target snapshot
-            if target_snapshot is None:
-                target_snapshot = self.ordsvr.get_exchange_snapshot(self.target_instmt.exchange, self.target_instmt.instmt_name)
-                if target_snapshot is None:
-                    continue
+                # Query the open order status
+                if not self.__update_best_bid_ask_price(order, self.__target_snapshot.order_book):
+                    self.__init_order_status_request(self.__order_status_request, open_order)
+                    fix_responses, err_text = self.ordsvr.request(self.__order_status_request)
+                    # Assert
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    open_order = fix_responses[0]
+                    self.__open_orders[order] = open_order
+                    assert open_order.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
+                        "Unexpected ExecTYpe value (%s)" % open_order.ExecType.value
+                    # Check leaves qty
+                    if open_order.LeavesQty.value == 0:
+                        # If the order has been fully filled
+                        self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
+                                         (open_order.CumQty.value, fixmsg2dict(open_order)))
+                        self.__open_orders[order] = None
+                        return True
+
+                cancel_reason = self.__check_cancel_condition(open_order)
+                # Cancel the order if the best bid exceeds the placed price
+                if cancel_reason != self.CancelReason.NONE:
+                    self.__init_order_cancel_reqeust(self.__order_cancel_request, open_order)
+                    self.__order_cancel_request.Text.value = cancel_reason
+                    fix_responses, err_text = self.ordsvr.request(self.__order_cancel_request)
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    response = fix_responses[0]
+
+                    if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT and \
+                                    response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
+                        # Order is canceled
+                        self.__open_orders[order] = None
+                        self.logger.info(self.__class__.__name__, "Cancel is accepted.\n%s" % fixmsg2dict(response))
+                    elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
+                        # Order is not canceled
+                        self.rejected_request += 1
+                        self.logger.info(self.__class__.__name__, "Cancel is rejected.\n%s" % fixmsg2dict(response))
+
+            else:
+                if self.__is_place_order(order) and self.ordsvr.valid_risk_limit(order):
+                    fix_responses, err_text = self.ordsvr.request(order)
                 else:
-                    self.logger.info(self.__class__.__name__,
-                                     "Target instrument %s/%s has received the first snapshot" % \
-                                     (self.target_instmt.exchange, self.target_instmt.instmt_name))
+                    return True
 
-            # Calculate the market price
-            # 1. If there is no open orders,
-            #   a) Initialize the buy and sell order by the place_price
-            #   b) Check the risk limit to decide which side can be placed
-            #   c) Send the order to the order server. If the request succeeds, get the order ack.
-            # 2. If there is open orders,
-            #   a) Monitor if the order has been filled by when the previous depth is different from the current one
-            #   b) If the market bid/ask is lower/larger than the placed bid/ask price, cancel the order.
-            for order, open_order in self.__open_orders.items():
-                if open_order is not None:
-                    # Cancel the order if the order is still open and one of the following conditions is fulfilled
-                    # 1. Not at the best price
-                    # 2. Market status stalled for a while
-                    # 3. Program exit
-                    # 4. Too far from the second best price
-
-                    # Query the open order status
-                    if not self.__update_best_bid_ask_price(order, target_snapshot.order_book):
-                        self.__init_order_status_request(order_status_request, open_order)
-                        fix_responses, err_text = self.ordsvr.request(order_status_request)
-                        # Assert
-                        assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                        open_order = fix_responses[0]
-                        self.__open_orders[order] = open_order
-                        assert open_order.ExecType.value == Fix.Tags.ExecType.Values.ORDER_STATUS, \
-                            "Unexpected ExecTYpe value (%s)" % open_order.ExecType.value
-                        # Check leaves qty
-                        if open_order.LeavesQty.value == 0:
-                            # If the order has been fully filled
-                            self.logger.info(self.__class__.__name__, "Order is fully filled.\nFilled volume = %.4f.\n%s" % \
-                                             (open_order.CumQty.value, fixmsg2dict(open_order)))
-                            self.__open_orders[order] = None
-                            continue
-
-                    cancel_reason = self.__check_cancel_condition(open_order, target_snapshot)
-                    # Cancel the order if the best bid exceeds the placed price
-                    if cancel_reason != self.CancelReason.NONE:
-                        self.__init_order_cancel_reqeust(order_cancel_request, open_order)
-                        order_cancel_request.Text.value = cancel_reason
-                        fix_responses, err_text = self.ordsvr.request(order_cancel_request)
-                        assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                        response = fix_responses[0]
-
-                        if response.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT and \
-                            response.OrdStatus.value == Fix.Tags.OrdStatus.Values.CANCELED:
-                            # Order is canceled
-                            self.__open_orders[order] = None
-                            self.logger.info(self.__class__.__name__, "Cancel is accepted.\n%s" % fixmsg2dict(response))
-                        elif response.MsgType == Fix.Tags.MsgType.Values.ORDERCANCELREJECT:
-                            # Order is not canceled
-                            self.rejected_request += 1
-                            self.logger.info(self.__class__.__name__, "Cancel is rejected.\n%s" % fixmsg2dict(response))
-
+                # Check the placement response
+                if err_text == "":
+                    assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
+                    response = fix_responses[0]     # Order ack/nack
+                    if response.ExecType.value == Fix.Tags.ExecType.Values.NEW:
+                        # Order ack
+                        self.__open_orders[order] = response
+                        self.logger.info(self.__class__.__name__, "Order is opened.\n%s" % fixmsg2dict(response))
+                    elif response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED:
+                        # Order nack
+                        self.rejected_request += 1
+                        self.logger.info(self.__class__.__name__, "Order is rejected.\n%s" % fixmsg2dict(response))
+                    else:
+                        raise NotImplementedError("Not implemented ExecType (%s)" % response.ExecType.value)
                 else:
-                    if self.__is_place_order(order) and self.ordsvr.valid_risk_limit(order):
-                        fix_responses, err_text = self.ordsvr.request(order)
-                    else:
-                        continue
+                    self.logger.info(self.__class__.__name__, "Error (%s) in placing orders." % err_text)
 
-                    # Check the placement response
-                    if err_text == "":
-                        assert len(fix_responses) == 1, "Unexpected number of messages (%d)" % len(fix_responses)
-                        response = fix_responses[0]     # Order ack/nack
-                        if response.ExecType.value == Fix.Tags.ExecType.Values.NEW:
-                            # Order ack
-                            self.__open_orders[order] = response
-                            self.logger.info(self.__class__.__name__, "Order is opened.\n%s" % fixmsg2dict(response))
-                        elif response.ExecType.value == Fix.Tags.ExecType.Values.REJECTED:
-                            # Order nack
-                            self.rejected_request += 1
-                            self.logger.info(self.__class__.__name__, "Order is rejected.\n%s" % fixmsg2dict(response))
-                        else:
-                            raise NotImplementedError("Not implemented ExecType (%s)" % response.ExecType.value)
-                    else:
-                        self.logger.info(self.__class__.__name__, "Error (%s) in placing orders." % err_text)
+        if self.rejected_request > self.max_rejected_request:
+            self.logger.error(self.__class__.__name__, "Number of rejected request (%d) has already exceeded." % self.rejected_request)
+            return False
 
-            if self.rejected_request > self.max_rejected_request:
-                self.logger.error(self.__class__.__name__, "Number of rejected request (%d) has already exceeded." % self.rejected_request)
-                break
-
-        self.logger.info(self.__class__.__name__, "Single market making strategy (%s) has ended." % self.get_name())
+        return True
 
     def __check_any_open_position(self):
         """
@@ -357,27 +359,25 @@ class SingleMarketMaking(RealTimeStrategy):
         :param order: Order
         :return: Tur if passed
         """
-        exchange = order.Instrument.SecurityExchange.value
-        instmt_name = order.Instrument.Symbol.value
+        assert self.__target_snapshot is not None, "Target snapshot should not be none."
         market_price = self.__calculate_market_price(order.Side.value)
-        target_snapshot = self.ordsvr.get_exchange_snapshot(exchange, instmt_name)
         side = order.Side.value
 
         if market_price is None:
             return False
 
-        last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
+        last_update_time = max(self.__target_snapshot.order_book.date_time, self.__target_snapshot.last_trade.date_time)
         if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
             return False
 
         if side == Fix.Tags.Side.Values.BUY:
             market_price -= self.profit_margin_fiat_currency
             market_price = int(market_price / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
-            if market_price >= target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size and \
-                            target_snapshot.order_book.b1 > 0:
-                price = target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
+            if market_price >= self.__target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size and \
+                            self.__target_snapshot.order_book.b1 > 0:
+                price = self.__target_snapshot.order_book.b1 + self.aggressiveness * self.target_instmt.price_min_size
                 qty = self.default_trading_qty
-                self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
+                self.__init_new_order_single(self.__target_snapshot.order_book, order, price, qty)
                 return True
             else:
                 return False
@@ -385,35 +385,35 @@ class SingleMarketMaking(RealTimeStrategy):
             market_price += self.profit_margin_fiat_currency
             # Rounding
             market_price = int(market_price / self.target_instmt.price_min_size + 0.5) * self.target_instmt.price_min_size
-            if market_price <= target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size and \
+            if market_price <= self.__target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size and \
                             market_price > 0:
-                price = target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
+                price = self.__target_snapshot.order_book.a1 - self.aggressiveness * self.target_instmt.price_min_size
                 qty = self.default_trading_qty
-                self.__init_new_order_single(target_snapshot.order_book, order, price, qty)
+                self.__init_new_order_single(self.__target_snapshot.order_book, order, price, qty)
                 return True
             else:
                 return False
         else:
             raise NotImplementedError("Side %s not yet implemented." % side)
 
-    def __check_cancel_condition(self, open_order, target_snapshot):
+    def __check_cancel_condition(self, open_order):
         """
         Check cancel condition
         :return: Cancel condition
         """
-
+        assert self.__target_snapshot is not None, "Target snapshot should not be none."
         cancel_reason = self.CancelReason.NONE
         # Check condition 1
         if open_order.Side.value == Fix.Tags.Side.Values.BUY:
-            if target_snapshot.order_book.b1 > open_order.Price.value:
+            if self.__target_snapshot.order_book.b1 > open_order.Price.value:
                 cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
         elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
-            if target_snapshot.order_book.a1 < open_order.Price.value:
+            if self.__target_snapshot.order_book.a1 < open_order.Price.value:
                 cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
         else:
             raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)
         # Check condition 2
-        last_update_time = max(target_snapshot.order_book.date_time, target_snapshot.last_trade.date_time)
+        last_update_time = max(self.__target_snapshot.order_book.date_time, self.__target_snapshot.last_trade.date_time)
         if (self.ordsvr.now() - last_update_time).total_seconds() > self.market_data_stalled_time_sec:
             cancel_reason = self.CancelReason.STALLED_FOR_LONG
 
@@ -424,10 +424,10 @@ class SingleMarketMaking(RealTimeStrategy):
         # Check condition 4
         market_price = self.__calculate_market_price(open_order.Side.value)
         if open_order.Side.value == Fix.Tags.Side.Values.BUY:
-            if market_price > target_snapshot.order_book.b2 and market_price < open_order.Price.value:
+            if market_price > self.__target_snapshot.order_book.b2 and market_price < open_order.Price.value:
                 cancel_reason = self.CancelReason.SEEKING_FOR_A_BETTER_PRICE
         elif open_order.Side.value == Fix.Tags.Side.Values.SELL:
-            if market_price < target_snapshot.order_book.a2 and market_price > open_order.Price.value:
+            if market_price < self.__target_snapshot.order_book.a2 and market_price > open_order.Price.value:
                 cancel_reason = self.CancelReason.NOT_AT_THE_BEST_PRICE
         else:
             raise NotImplementedError("Side %s not yet implemented." % open_order.Side.value)

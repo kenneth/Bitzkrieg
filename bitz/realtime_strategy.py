@@ -29,11 +29,19 @@ class RealTimeStrategy:
         """
         return self.name
 
-    def monitor(self):
+    def init_strategy(self):
         """
-        Monitor the market
+        Initialize strategy. Called before getting market data.
         """
-        pass
+        raise NotImplementedError("Not implemented for strategy (%s)." % self.get_name())
+
+    def on_market_update(self, snapshot):
+        """
+        Callback when the market is updated.
+        :param snapshot: Market data snapshot
+        :return False for terminating running
+        """
+        raise NotImplementedError("Not implemented for strategy (%s)." % self.get_name())
 
     def handle_signal(self, sig, stack):
         """
@@ -45,30 +53,6 @@ class RealTimeStrategy:
                     "Stack (%s) is received. Strategy %s is exiting..." % (stack, self.name))
         else:
             assert False, "Unrecognized signal %d" % sig
-
-    def _update_order_book(self):
-        """
-        Update order book
-        """
-        pass
-
-    def _send_order(self, **kargs):
-        """
-        Send order
-        """
-        pass
-
-    def _check_open_orders(self, **kargs):
-        """
-        Check open orders from the order server
-        """
-        pass
-
-    def get_max_fiat_currency_risk(self):
-        """
-        Get maximum fiat currency risk
-        """
-        return self.max_fiat_currency_risk
 
 
 

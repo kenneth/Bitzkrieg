@@ -51,7 +51,15 @@ def main():
 
     # Start the strategies
     for strategy in strategies:
-        strategy.monitor()
+        logger.info('[main]', 'Initializing strategy (%s)...' % strategy.get_name())
+        strategy.init_strategy()
+
+    while True:
+        snapshot = order_server.get_latest_snapshot(200000)
+        strategies = [strategy for strategy in strategies if strategy.on_market_update(snapshot)]
+        if len(strategies) == 0:
+            logger.info('[main]', "All strategies has returned safely.")
+            break
 
     # Starting...
     logger.info('[main]', "Process has ended.")
