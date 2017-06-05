@@ -1,4 +1,4 @@
-from bitz.realtime_database import SqliteRealtimeDatabase
+from bitz.realtime_database import SqlRealtimeDatabase
 from bitz.fix_message_factory import FixMessageFactory
 from bitz.db_records import ActiveOrders, Balances
 from bitz.FIX50SP2 import FIX50SP2 as Fix
@@ -23,7 +23,7 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
             os.remove(file)
 
     def test_create_and_insert_active_orders(self):
-        db = SqliteRealtimeDatabase()
+        db = SqlRealtimeDatabase(type=SqlRealtimeDatabase.DatabaseType.SQLITE)
         db.connect(path=os.path.join('bitz',
                                      'test',
                                      'test_realtime_db_%s.db' % datetime.utcnow().strftime("%y%m%d%H%M%S%f")))
@@ -49,7 +49,7 @@ class TSqliteRealtimeDatabase(unittest.TestCase):
         self.assertEqual(2, len(records))
 
     def test_create_and_insert_balances(self):
-        db = SqliteRealtimeDatabase()
+        db = SqlRealtimeDatabase(type=SqlRealtimeDatabase.DatabaseType.SQLITE)
         db.connect(path=os.path.join('bitz',
                                      'test',
                                      'test_realtime_db_%s.db' % datetime.utcnow().strftime("%y%m%d%H%M%S%f")))

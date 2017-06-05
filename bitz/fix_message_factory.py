@@ -192,9 +192,13 @@ class FixMessageFactory(object):
 
     @classmethod
     def create_position_report(cls,
-                               reqid):
+                               exchange,
+                               reqid,
+                               posid):
         report = Fix.Messages.PositionReport()
+        report.Instrument.SecurityExchange.value = exchange
         report.PosReqID.value = reqid
+        report.PosMaintRptID.value = posid
         return report
 
     @classmethod
@@ -211,4 +215,14 @@ class FixMessageFactory(object):
         group.PosAmt.value = amount
         group.PosAmtType.value = type
         return group
+
+    @classmethod
+    def create_order_mass_status_request(cls, reqId, exchange) -> Fix.Messages.OrderMassStatusRequest:
+        """
+        Create order mass status request
+        """
+        request = Fix.Messages.OrderMassStatusRequest()
+        request.MassStatusReqID.value = reqId
+        request.Instrument.SecurityExchange.value = exchange
+        return request
 

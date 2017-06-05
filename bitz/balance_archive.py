@@ -11,7 +11,7 @@ def get_args():
     """
     Get input arguments
     """
-    parser = argparse.ArgumentParser(description='Single market marking.')
+    parser = argparse.ArgumentParser(description='Account balance archive.')
     parser.add_argument('-config', action='store', dest='config',
                         help='Configuration file path',
                         default='')
@@ -28,38 +28,24 @@ def main():
     logger = factory.create_logger()
 
     # Starting...
-    logger.info('[main]', "Process is starting now...")
+    logger.info('[main]', "Start to archive account balance...")
 
     # Initialize objects
-    market_data_feed = factory.create_market_data_feed(logger)
+    instmt_list = factory.create_instrument_list()
     journal_db = factory.create_journal_database()
     realtime_db = factory.create_realtime_database()
-    instmt_list = factory.create_instrument_list()
     risk_manager = factory.create_risk_manager(instmt_list)
+    market_data_feed = factory.create_market_data_feed(logger, is_basic=True)
     order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed, instmt_list)
     factory.create_exchanges(logger, order_server, market_data_feed)
 
     # Initialize exchange risk
     order_server.initialize_exchange_risk()
 
-    # Strategy initialization
-    strategies = factory.create_strategies(order_server, logger, instmt_list)
+    # Initialize exchange positions
+    order_server.initialize_exchange_positions()
 
-    # Start the strategies
-    for strategy in strategies:
-        logger.info('[main]', 'Initializing strategy (%s)...' % strategy.get_name())
-        strategy.init_strategy()
-
-    while True:
-        snapshot = order_server.get_latest_snapshot(200000)
-        strategies = [strategy for strategy in strategies if strategy.on_market_update(snapshot)]
-        if len(strategies) == 0:
-            logger.info('[main]', "All strategies has returned safely.")
-            break
-
-    # Starting...
-    logger.info('[main]', "Process has ended.")
+    logger.info('[main]', "Finished to archive account balance.")
 
 if __name__ == '__main__':
     main()
-

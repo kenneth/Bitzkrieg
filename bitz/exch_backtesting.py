@@ -16,12 +16,19 @@ class ExchBacktesting(Exchange):
         :param market_data_feed: Market data feed
         :param network_latency: The network latency on messages
         """
-        Exchange.__init__(self, name)
+        Exchange.__init__(self)
+        self.__name = name
         self.__market_data_feed = market_data_feed
         self.__network_latency = network_latency
         self.__exch_order_id = 0
         self.__open_positions = {}
         self.__price_gap_detection = 100
+
+    def get_name(self):
+        """
+        Get name
+        """
+        return self.__name
 
     def request(self, req):
         """
@@ -84,7 +91,11 @@ class ExchBacktesting(Exchange):
             self.__open_positions[req.OrderID.value].append(fix_response)
 
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
-            raise NotImplementedError("ORDERMASSSTATUSREQUEST")
+            for order_id, positions in self.__open_positions.items():
+                last_order_update = deepcopy(positions[-1])
+                last_order_update.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS
+                last_order_update.ExecID.value = self.__market_data_feed.now_string() + str(uuid())
+                fix_responses.append(last_order_update)
         elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
             order_id = req.OrderID.value
             if order_id in self.__open_positions.keys():

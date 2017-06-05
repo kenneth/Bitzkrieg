@@ -79,8 +79,15 @@ class ExchBitmex(Exchange):
     Exchange BitMEX
     """
     def __init__(self, logger, public_key, private_key):
-        Exchange.__init__(self, 'BitMEX')
+        Exchange.__init__(self)
         self.api_connector = ExchBitmexRestApiConnector(logger, public_key, private_key)
+
+    @classmethod
+    def get_name(cls):
+        """
+        Get name
+        """
+        return 'BitMEX'
 
     @classmethod
     def parse_timeinforce(cls, timeinforce_string):
@@ -195,6 +202,38 @@ class ExchBitmex(Exchange):
             else:
                 # Failed
                 err_msg = "Request is rejected."
+        elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
+            ##############################################################################################
+            # Order mass status request
+            ##############################################################################################
+            response = self.request_order_mass_status_request(req)
+            if response is None:
+                err_msg = "No response from the exchange connector"
+            elif response.status_code == 200:
+                # Success
+                response = response.json()
+                for position in response:
+                    fix_response = FixMessageFactory.create_execution_report(
+                        symbol=position["symbol"],
+                        exchange=self.get_name(),
+                        orderid=position["orderID"],
+                        clordid=position["clOrdID"],
+                        side=Fix.Tags.Side.Values.BUY if position["side"] == "Buy" else Fix.Tags.Side.Values.SELL,
+                        price=position["price"],
+                        qty=position["orderQty"],
+                        ordtype=Fix.Tags.OrdType.Values.LIMIT if position["ordType"] == "Limit" else Fix.Tags.OrdType.Values.MARKET,
+                        leavesqty=position["leavesQty"],
+                        cumqty=position["cumQty"],
+                        avgpx=position["avgPx"],
+                        transacttime=position["transactTime"].replace("-", "").replace("Z", "") + "000",
+                        timeinforce=self.parse_timeinforce(position["timeInForce"]),
+                        text=position["text"])
+                    fix_response.OrdStatusReqID.value = req.MassStatusReqID.value
+                    fix_responses.append(fix_response)
+            else:
+                # Failed
+                err_msg = "Request is rejected."
+
         elif msgType == Fix.Tags.MsgType.Values.REQUESTFORPOSITIONS:
             ##############################################################################################
             # Request for positions
@@ -270,6 +309,17 @@ class ExchBitmex(Exchange):
             "Order request is not ORDERMASSCANCELREQUEST"
         return self.api_connector.send_request("Order/all", RestApiConnector.HTTPMethod.DELETE, None)
 
+    def request_order_mass_status_request(self, req):
+        """
+        Send order status request
+        :param req: Request
+        :return: Exchange response
+        """
+        assert req.MsgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST, \
+            "Order request is not ORDERMASSSTATUSREQUEST"
+
+        return self.api_connector.send_request("Order", RestApiConnector.HTTPMethod.GET, None)
+
     def request_order_status_request(self, req):
         """
         Send order status request
@@ -301,7 +351,9 @@ class ExchBitmex(Exchange):
         :param response: Exchange response in a list of dictionaries
         :return: PositionReport report
         """
-        report = FixMessageFactory.create_position_report(reqid=req.PosReqID.value)
+        report = FixMessageFactory.create_position_report(exchange=self.get_name(),
+                                                          reqid=req.PosReqID.value,
+                                                          posid=str(uuid()))
         for margin in response:
             report.PositionAmountData.groups.append(FixMessageFactory.create_position_amount_data(
                 currency=margin["currency"],
@@ -315,8 +367,8 @@ class ExchBitmex(Exchange):
 
 
 if __name__ == '__main__':
-    public = 'IwbLfQbhG3Y8f9YsEWY4GXCj'
-    private = 'ne7FYzr6i8_6xbVzRfPNzueflMqftKchMWKMKlyx5BQCEWjt'
+    public = 'your_public_key'
+    private = 'your_private_key'
     exch = ExchBitmex(ConsoleLogger.static_logger, public, private)
     req = FixMessageFactory.create_new_single_order(exchange='BitMEX',
                                                     symbol='XBTUSD',

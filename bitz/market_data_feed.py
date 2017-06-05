@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from bitz.market_data import Snapshot
+from datetime import datetime
 
 
 class MarketDataFeed:
@@ -29,7 +30,7 @@ class MarketDataFeed:
         """
         Disconnect to the market data feed
         """
-        raise NotImplementedError("Please Implement this method")
+        pass
 
     def get_snapshot(self, timeout=100):
         """
@@ -57,7 +58,7 @@ class MarketDataFeed:
         Get the current time
         :return: Current datetime
         """
-        raise NotImplementedError("Please Implement this method")
+        return datetime.utcnow()
 
     def now_string(self, format='%Y%m%dT%H:%M:%S.%f'):
         """
@@ -65,5 +66,5 @@ class MarketDataFeed:
         :param format: Time format
         :return: Current datetime in string
         """
-        raise NotImplementedError("Please Implement this method")
+        return datetime.utcnow().strftime(format)
 

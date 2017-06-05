@@ -15,12 +15,20 @@ class ExchGatecoinEis(Exchange):
     Exchange gateway server
     """
     def __init__(self, eig):
-        Exchange.__init__(self, 'Gatecoin')
+        Exchange.__init__(self)
         self.eig = eig
 
     @staticmethod
     def __create_unique_id():
         return datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f") + '-' + str(uuid())
+
+    @classmethod
+    def get_name(cls):
+        """
+        Get name
+        :return: Name
+        """
+        return 'Gatecoin'
 
     def generate_execution_report(self):
         """

@@ -1,6 +1,6 @@
 #!/bin/python
 from bitz.FIX50SP2 import FIX50SP2 as Fix
-from bitz.sql_client import SqliteClient
+from bitz.sql_client import SqliteClient, MysqliteClient
 from bitz.db_records import ActiveOrders, Balances, OrderRequests
 from bitz.util import fixmsg2dict
 from typing import Union
@@ -143,16 +143,27 @@ class InternalRealtimeDatabase(AbstractRealtimeDatabase):
             return None
 
 
-class SqliteRealtimeDatabase(InternalRealtimeDatabase):
+class SqlRealtimeDatabase(InternalRealtimeDatabase):
     """
     Abstract realtime database
     """
-    def __init__(self):
+    class DatabaseType:
+        """
+        Database type enum
+        """
+        UNKNOWN = 0
+        SQLITE = 1
+        MYSQL = 2
+
+    def __init__(self, type=DatabaseType.UNKNOWN):
         """
         Constructor
         """
         InternalRealtimeDatabase.__init__(self)
-        self.__client = SqliteClient()
+        self.__client = None
+        self.__type = type
+        assert self.__type != SqlRealtimeDatabase.DatabaseType.UNKNOWN, \
+                "Invalid SQL database type (%s)" % self.__type
 
     def __del__(self):
         """
@@ -166,8 +177,21 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
         Connect to the database
         :param kwargs: Arguments
         """
-        path = kwargs['path']
-        self.__client.connect(path=path)
+        if self.__type == SqlRealtimeDatabase.DatabaseType.SQLITE:
+            self.__client = SqliteClient()
+            path = kwargs['path']
+            self.__client.connect(path=path)
+        elif self.__type == SqlRealtimeDatabase.DatabaseType.MYSQL:
+            self.__client = MysqliteClient()
+            host = kwargs['host']
+            port = int(kwargs['port'])
+            user = kwargs['user']
+            pwd = kwargs['pwd']
+            schema = kwargs['schema']
+            self.__client.connect(host=host, port=port, user=user, pwd=pwd, schema=schema)
+        else:
+            raise NotImplementedError("SQL database type (%s) has not been implemented" % self.__type)
+
         self.__client.create(ActiveOrders)
         self.__client.create(Balances)
         self.__client.create(OrderRequests)
@@ -221,6 +245,13 @@ class SqliteRealtimeDatabase(InternalRealtimeDatabase):
                                           instmt_name=request.Instrument.Symbol.value,
                                           clordid=request.OrdStatusReqID.value,
                                           orderid=request.OrderID.value,
+                                          sendingtime=request.Header.SendingTime.value)
+        elif request.MsgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
+            order_request = OrderRequests(timestamp=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
+                                          msgtype=request.MsgType,
+                                          exchange=request.Instrument.SecurityExchange.value,
+                                          instmt_name=request.Instrument.Symbol.value,
+                                          clordid=request.MassStatusReqID.value,
                                           sendingtime=request.Header.SendingTime.value)
         else:
             assert False, "MsgType (%s) not yet implemented." % request.MsgType

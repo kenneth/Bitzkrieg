@@ -2,7 +2,7 @@
 from bitz.market_data_feed import MarketDataFeed
 from bitz.bcfh_market_data_feed import BcfhMarketDataFeed
 from bitz.file_market_data_feed import FileMarketDataFeed
-from bitz.realtime_database import AbstractRealtimeDatabase, InternalRealtimeDatabase, SqliteRealtimeDatabase
+from bitz.realtime_database import AbstractRealtimeDatabase, InternalRealtimeDatabase, SqlRealtimeDatabase
 from bitz.journal_database import AbstractJournalDatabase, InternalJournalDatabase
 from bitz.order_server import OrderServer
 from bitz.logger import Logger, ConsoleLogger
@@ -45,19 +45,18 @@ class Factory(object):
         """
         return ConsoleLogger.static_logger
 
-    def create_risk_manager(self) -> RiskManager:
+    def create_risk_manager(self, instmt_list: InstrumentList) -> RiskManager:
         """
         Create risk manager
         :return: Risk manager
         """
-        return RiskManager()
+        return RiskManager(instmt_list)
 
     def create_realtime_database(self) -> AbstractRealtimeDatabase:
         """
         Create realtime database
         :return: Realtime database
         """
-        db = None
         section = 'RealtimeDatabase'
         database_type = self.__config.get(section, 'Type')
         if database_type == 'Internal':
@@ -68,8 +67,16 @@ class Factory(object):
             path = self.__config.get(section, 'Path')
             path = os.path.join(path,
                                 'realtime_db_%s.db' % datetime.utcnow().strftime("%Y%m%d%H%M%S%f"))
-            db = SqliteRealtimeDatabase()
+            db = SqlRealtimeDatabase(SqlRealtimeDatabase.DatabaseType.SQLITE)
             db.connect(path=path)
+        elif database_type == 'Mysql':
+            host = self.__config.get(section, 'Host')
+            port = self.__config.get(section, 'Port')
+            user = self.__config.get(section, 'User')
+            pwd = self.__config.get(section, 'Pwd')
+            schema = self.__config.get(section, 'Schema')
+            db = SqlRealtimeDatabase(SqlRealtimeDatabase.DatabaseType.MYSQL)
+            db.connect(type=database_type, host=host, port=port, user=user, pwd=pwd, schema=schema)
         else:
             raise NotImplementedError("Database type (%s) has not yet been implemented." % database_type)
 
@@ -90,12 +97,15 @@ class Factory(object):
         else:
             raise NotImplementedError("Database type (%s) has not yet been implemented." % database_type)
 
-    def create_market_data_feed(self, logger) -> MarketDataFeed:
+    def create_market_data_feed(self, logger, is_basic=False) -> MarketDataFeed:
         """
         Create market data feed
         :param logger: Logger
         :return: Market data feed
         """
+        if is_basic:
+            return MarketDataFeed(logger)
+
         market_data_feed_type = self.__config.get('MarketFeed', 'Type')
         if market_data_feed_type == 'file':
             market_data_feed = FileMarketDataFeed(logger)
@@ -108,7 +118,13 @@ class Factory(object):
 
         return market_data_feed
 
-    def create_order_server(self, logger, journal_db, realtime_db, risk_manager, market_data_feed):
+    def create_order_server(self,
+                            logger,
+                            journal_db,
+                            realtime_db,
+                            risk_manager,
+                            market_data_feed,
+                            instrument_list):
         """
         Create order server
         :param logger: Logger
@@ -116,9 +132,22 @@ class Factory(object):
         :param realtime_db: Realtime database
         :param risk_manager: Risk manager
         :param market_data_feed: Market data feed
+        :param instrument_list: Instrument list
         :return: Order server
         """
-        return OrderServer(logger, journal_db, realtime_db, risk_manager, market_data_feed)
+        return OrderServer(logger, journal_db, realtime_db, risk_manager, market_data_feed, instrument_list)
+
+    def create_exchanges(self, logger, ordsvr, market_data_feed):
+        """
+        Create exchanges
+        """
+        exchange_types = [ExchGatecoinEis, ExchBitmex]
+        sections = self.__config.sections()
+        for section in sections:
+            for exchange_type in exchange_types:
+                if section == exchange_type.get_name():
+                    gateway = self.create_exchange(section, logger, market_data_feed=market_data_feed)
+                    ordsvr.register_exchange(gateway)
 
     def create_exchange(self, exchange_name, logger, **kwargs):
         """
@@ -169,8 +198,16 @@ class Factory(object):
                 usd_rate = float(self.__config.get(section, 'USDRate'))
                 price_min_size = float(self.__config.get(section, 'PriceMinSize'))
                 qty_min_size = float(self.__config.get(section, 'QtyMinSize'))
+                base_currency = self.__config.get(section, 'BaseCurrency')
+                quote_currency = self.__config.get(section, 'QuoteCurrency')
 
-                instmt = Instrument(exchange, instmt_name, usd_rate, price_min_size, qty_min_size)
+                instmt = Instrument(exchange=exchange,
+                                    instmt_name=instmt_name,
+                                    usd_rate=usd_rate,
+                                    price_min_size=price_min_size,
+                                    qty_min_size=qty_min_size,
+                                    base_currency=base_currency,
+                                    quote_currency=quote_currency)
                 instmt_list.insert(instmt)
 
         return instmt_list
