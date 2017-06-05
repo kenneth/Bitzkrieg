@@ -26,6 +26,7 @@ setup(
     ],
     entry_points={
             'console_scripts': ['bitz=bitz.bitzkrieg:main',
+                                'balance_archive=bitz.balance_archive:main',
                                 'gatecoin=bitz.exch_gatecoin_eis:main']
         },    
     install_requires=[

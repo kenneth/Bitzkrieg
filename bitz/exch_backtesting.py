@@ -16,12 +16,19 @@ class ExchBacktesting(Exchange):
         :param market_data_feed: Market data feed
         :param network_latency: The network latency on messages
         """
-        Exchange.__init__(self, name)
+        Exchange.__init__(self)
+        self.__name = name
         self.__market_data_feed = market_data_feed
         self.__network_latency = network_latency
         self.__exch_order_id = 0
         self.__open_positions = {}
         self.__price_gap_detection = 100
+
+    def get_name(self):
+        """
+        Get name
+        """
+        return self.__name
 
     def request(self, req):
         """

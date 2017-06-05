@@ -79,8 +79,15 @@ class ExchBitmex(Exchange):
     Exchange BitMEX
     """
     def __init__(self, logger, public_key, private_key):
-        Exchange.__init__(self, 'BitMEX')
+        Exchange.__init__(self)
         self.api_connector = ExchBitmexRestApiConnector(logger, public_key, private_key)
+
+    @classmethod
+    def get_name(cls):
+        """
+        Get name
+        """
+        return 'BitMEX'
 
     @classmethod
     def parse_timeinforce(cls, timeinforce_string):

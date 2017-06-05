@@ -37,11 +37,7 @@ def main():
     risk_manager = factory.create_risk_manager()
     order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed)
     instmt_list = factory.create_instrument_list()
-
-    # Register exchange
-    for exchange_name in ['Gatecoin']:
-        exchange_gateway = factory.create_exchange('Gatecoin', logger, market_data_feed=market_data_feed)
-        order_server.register_exchange(exchange_gateway)
+    factory.create_exchanges(logger, order_server, market_data_feed)
 
     # Initialize exchange risk
     order_server.initialize_exchange_risk()

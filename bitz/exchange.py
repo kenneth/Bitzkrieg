@@ -3,17 +3,18 @@ class Exchange(object):
     """
     Exchange
     """
-    def __init__(self, name):
+    def __init__(self):
         """
         COnstructor
         """
-        self.__name = name
+        pass
 
-    def get_name(self):
+    @classmethod
+    def get_name(cls):
         """
         Get the exchange name
         """
-        return self.__name
+        raise NotImplementedError("Not yet implemented get_name.")
 
     def request(self, req):
         """

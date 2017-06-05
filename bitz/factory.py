@@ -120,6 +120,18 @@ class Factory(object):
         """
         return OrderServer(logger, journal_db, realtime_db, risk_manager, market_data_feed)
 
+    def create_exchanges(self, logger, ordsvr, market_data_feed):
+        """
+        Create exchanges
+        """
+        exchange_types = [ExchGatecoinEis, ExchBitmex]
+        sections = self.__config.sections()
+        for section in sections:
+            for exchange_type in exchange_types:
+                if section == exchange_type.get_name():
+                    gateway = self.create_exchange(section, logger, market_data_feed=market_data_feed)
+                    ordsvr.register_exchange(gateway)
+
     def create_exchange(self, exchange_name, logger, **kwargs):
         """
         Create exchange
