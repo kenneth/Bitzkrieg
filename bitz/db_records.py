@@ -130,6 +130,7 @@ class Balances(TableRecord):
                 ('ccy',                 str),
                 ('balance',             float),
                 ('availableBalance',    float),
+                ('account',             str)
                 ]
 
     @classmethod

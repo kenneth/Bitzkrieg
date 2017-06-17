@@ -353,7 +353,8 @@ class ExchBitmex(Exchange):
         """
         report = FixMessageFactory.create_position_report(exchange=self.get_name(),
                                                           reqid=req.PosReqID.value,
-                                                          posid=str(uuid()))
+                                                          posid=str(uuid()),
+                                                          account=self.api_connector.get_public_key())
         for margin in response:
             report.PositionAmountData.groups.append(FixMessageFactory.create_position_amount_data(
                 currency=margin["currency"],

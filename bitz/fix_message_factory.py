@@ -194,11 +194,13 @@ class FixMessageFactory(object):
     def create_position_report(cls,
                                exchange,
                                reqid,
-                               posid):
+                               posid,
+                               account=None):
         report = Fix.Messages.PositionReport()
         report.Instrument.SecurityExchange.value = exchange
         report.PosReqID.value = reqid
         report.PosMaintRptID.value = posid
+        report.Account.value = account
         return report
 
     @classmethod

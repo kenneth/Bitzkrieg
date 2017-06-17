@@ -312,7 +312,8 @@ class SqlRealtimeDatabase(InternalRealtimeDatabase):
                                   exchange=pos_report.Instrument.SecurityExchange.value,
                                   ccy=currency,
                                   balance=balances[currency],
-                                  availableBalance=available_balances.get(currency, float('nan')))
+                                  availableBalance=available_balances.get(currency, float('nan')),
+                                  account=pos_report.Account.value)
             self.__client.insert(ccyBalance)
 
     def get_database(self):
