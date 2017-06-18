@@ -51,6 +51,14 @@ class ExchPoloniex(object):
         self.key = key
         self.secret = secret
 
+    @classmethod
+    def get_name(cls):
+        """
+        Get name
+        :return: Name
+        """
+        return 'Poloniex'
+
     def send_request(self, data):
         signature = hmac.new(secret.encode(), urllib.parse.urlencode(data).encode(),
                              digestmod=hashlib.sha512).hexdigest()
@@ -263,7 +271,10 @@ class ExchPoloniex(object):
         :param response: Exchange response in a list of dictionaries
         :return: PositionReport report
         """
-        report = FixMessageFactory.create_position_report(reqid=req.PosReqID.value)
+        report = FixMessageFactory.create_position_report(exchange=self.get_name(),
+                                                          reqid=req.PosReqID.value,
+                                                          posid=str(uuid()),
+                                                          account=self.api_connector.get_public_key())
         for currency in response:
             report.PositionAmountData.groups.append(FixMessageFactory.create_position_amount_data(
                 currency=currency,
@@ -304,7 +315,8 @@ if __name__ == '__main__':
 
     print()
     print('Checking all open orders...')
-    req = Fix.Messages.OrderMassStatusRequest()
+    req = FixMessageFactory.create_order_mass_status_request(reqId=str(uuid()),
+                                                             exchange='Poloniex')
     report, err_msg = exch.request(req)
     print(err_msg)
     for order in report:
