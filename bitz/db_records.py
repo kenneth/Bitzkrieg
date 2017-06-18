@@ -21,15 +21,23 @@ class TableRecord(object):
         return []
 
     @classmethod
-    def create_sql_stmt(cls, convertor):
+    def create_sql_stmt(cls, sql_cls):
         """
         SQL statement on create
         :param convertor: Type convertor
         :return: Sql statement
         """
         sql = "create table if not exists %s (" % cls.name()
-        for field, type in cls.columns():
-            sql += "%s %s," % (field, convertor(type))
+        for column in cls.columns():
+            field = column[0]
+            type = column[1]
+            autoincrement = column[2] if len(column) > 2 else False
+
+            if not autoincrement:
+                sql += "%s %s," % (field, sql_cls.convert_type(type))
+            else:
+                sql += "%s %s %s," % (field, sql_cls.convert_type(type), sql_cls.get_auto_increment_keyword())
+
         if len(cls.primary_keys()) > 0:
             sql += "primary key (%s)" % (", ".join(cls.primary_keys()))
         else:
@@ -47,7 +55,9 @@ class TableRecord(object):
         for column in self.columns():
             field = column[0]
             type = column[1]
-            if field in self.values.keys():
+            autoincrement = column[2] if len(column) > 2 else False
+
+            if field in self.values.keys() and not autoincrement:
                 value = self.values[field]
                 if value is not None:
                     if type == str:
@@ -71,23 +81,27 @@ class ActiveOrders(TableRecord):
 
     @classmethod
     def columns(cls):
-        return [('id', int),
-                ('timestamp', str),
-                ('exchange', str),
-                ('instmt_name', str),
-                ('orderid', str),
-                ('side', str),
-                ('price', float),
-                ('orderqty', float),
-                ('cumqty', float),
-                ('leavesqty', float),
-                ('avgpx', float),
-                ('ordstatus', str),
-                ('exectype', str),
-                ('ordtype', str),
-                ('timeinforce', str),
-                ('clordid', str),
-                ('transacttime', str)
+        """
+        Columns
+                 FieldName            | FieldType | AutoIncrement
+        """
+        return [('id',                  int,        True),
+                ('timestamp',           str),
+                ('exchange',            str),
+                ('instmt_name',         str),
+                ('orderid',             str),
+                ('side',                str),
+                ('price',               float),
+                ('orderqty',            float),
+                ('cumqty',              float),
+                ('leavesqty',           float),
+                ('avgpx',               float),
+                ('ordstatus',           str),
+                ('exectype',            str),
+                ('ordtype',             str),
+                ('timeinforce',         str),
+                ('clordid',             str),
+                ('transacttime',        str)
                 ]
 
     @classmethod
@@ -106,12 +120,17 @@ class Balances(TableRecord):
 
     @classmethod
     def columns(cls):
-        return [('id', int),
-                ('timestamp', str),
-                ('exchange', str),
-                ('ccy', str),
-                ('balance', float),
-                ('availableBalance', float),
+        """
+        Columns
+                 FieldName            | FieldType | AutoIncrement
+        """
+        return [('id',                  int,        True),
+                ('timestamp',           str),
+                ('exchange',            str),
+                ('ccy',                 str),
+                ('balance',             float),
+                ('availableBalance',    float),
+                ('account',             str)
                 ]
 
     @classmethod
@@ -126,17 +145,25 @@ class OrderRequests(TableRecord):
 
     @classmethod
     def columns(cls):
-        return [('id', int),
-                ('msgtype', str),
-                ('timestamp', str),
-                ('clordid', str),
-                ('exchange', str),
+        """
+        Columns
+                 FieldName    | FieldType | AutoIncrement
+        """
+        return [('id',          int,        True),
+                ('msgtype',     str),
+                ('timestamp',   str),
+                ('clordid',     str),
+                ('exchange',    str),
                 ('instmt_name', str),
-                ('orderid', str),
-                ('side', str),
-                ('price', float),
-                ('orderqty', float),
-                ('ordtype', str),
+                ('orderid',     str),
+                ('side',        str),
+                ('price',       float),
+                ('orderqty',    float),
+                ('ordtype',     str),
                 ('timeinforce', str),
                 ('sendingtime', str)
                 ]
+
+    @classmethod
+    def primary_keys(cls):
+        return ['id']

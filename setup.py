@@ -36,6 +36,7 @@ setup(
             'redis',
             'PyJWT',
             'mock',
-            'requests'
+            'requests',
+            'pymysql'
     ],
 )

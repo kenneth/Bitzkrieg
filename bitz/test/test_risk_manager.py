@@ -1,6 +1,6 @@
 #!/bin/python
 from bitz.risk_manager import RiskManager
-from bitz.instrument import Instrument
+from bitz.instrument import Instrument, InstrumentList
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from uuid import uuid4 as uuid
 import unittest
@@ -11,6 +11,16 @@ class TRiskManager(unittest.TestCase):
     instmt_name = 'btcusd'
     price = 1200
     qty = 1.5
+
+    @classmethod
+    def __create_risk_manager(cls) -> RiskManager:
+        """
+        Create risk manager
+        :return: Risk manager
+        """
+        instmt_list = InstrumentList()
+        instmt_list.insert(cls.__create_instrument())
+        return RiskManager(instmt_list)
 
     @classmethod
     def __create_position_report(cls) -> Fix.Messages.PositionReport:
@@ -131,14 +141,20 @@ class TRiskManager(unittest.TestCase):
         Create instrument
         :return: Instrument
         """
-        return Instrument(cls.exchange_name, cls.instmt_name, 1, 0.0001, 0.00001)
+        return Instrument(exchange=cls.exchange_name,
+                          instmt_name=cls.instmt_name,
+                          usd_rate=1,
+                          price_min_size=0.0001,
+                          qty_min_size=0.00001,
+                          quote_currency="BTC",
+                          base_currency="USD")
 
 
     def test_position_report(self):
         """
         Test position report
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -153,7 +169,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test send order
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -173,7 +189,7 @@ class TRiskManager(unittest.TestCase):
         Test order reject
         :return:
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -196,7 +212,7 @@ class TRiskManager(unittest.TestCase):
         Test order ack
         :return:
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -218,7 +234,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test order execution
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -248,7 +264,7 @@ class TRiskManager(unittest.TestCase):
         Test send order cancel request
         :return:
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -281,7 +297,7 @@ class TRiskManager(unittest.TestCase):
         Test send order cancel request
         :return:
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -318,7 +334,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test order status when the order is filled
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -365,7 +381,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test order status when the order is filled
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -412,7 +428,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test risk check on buy side
         """
-        risk_manager = RiskManager()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -425,8 +441,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test risk check on sell side
         """
-        risk_manager = RiskManager()
-        instmt = self.__create_instrument()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -441,8 +456,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test risk check on buy side and fail on the strategy risk check
         """
-        risk_manager = RiskManager()
-        instmt = self.__create_instrument()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)
@@ -460,8 +474,7 @@ class TRiskManager(unittest.TestCase):
         """
         Test risk check on buy side and fail on the strategy risk check
         """
-        risk_manager = RiskManager()
-        instmt = self.__create_instrument()
+        risk_manager = self.__create_risk_manager()
         message = self.__create_position_report()
         exchange_risk = risk_manager.register_exchange(self.exchange_name)
         risk_manager.update_risk_exposure_by_message(message, exchange_risk)

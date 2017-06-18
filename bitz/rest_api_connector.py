@@ -83,3 +83,9 @@ class RestApiConnector(object):
         except Exception as e:
             return e
 
+    def get_public_key(self):
+        """
+        Access public key
+        """
+        return self._public_key
+

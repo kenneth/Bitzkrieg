@@ -2,21 +2,26 @@
 from bitz.db_records import TableRecord
 import threading
 import sqlite3
+import pymysql
 
 class SqlClient:
     """
     Sql client
     """
     @classmethod
-    def sql_convertor(cls, type):
+    def convert_type(cls, type):
         if type == int:
-            return 'bigint'
+            return 'int'
         elif type == float:
             return 'decimal(20,8)'
         elif type == str:
             return 'varchar(25)'
         else:
             raise NotImplementedError('Type (%s) has not been defined yet.' % type)
+
+    @classmethod
+    def get_auto_increment_keyword(cls):
+        return ""
 
     def __init__(self):
         """
@@ -75,7 +80,7 @@ class SqlClient:
         sql = ""
 
         try:
-            sql = record.create_sql_stmt(self.sql_convertor)
+            sql = record.create_sql_stmt(self)
             self.execute(sql)
         except Exception as e:
             raise Exception("Error in create statement (%s).\nError: %s\n" % (sql, e))
@@ -148,6 +153,10 @@ class SqliteClient(SqlClient):
         self.cursor.close()
         self.conn.close()
 
+    @classmethod
+    def get_auto_increment_keyword(cls):
+        return ""
+
     def connect(self, **kwargs):
         """
         Connect
@@ -155,6 +164,82 @@ class SqliteClient(SqlClient):
         """
         path = kwargs['path']
         self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        return self.conn is not None and self.cursor is not None
+
+    def execute(self, sql):
+        """
+        Execute the sql command
+        :param sql: SQL command
+        """
+        self.cursor.execute(sql)
+
+
+    def commit(self):
+        """
+        Commit
+        """
+        self.conn.commit()
+
+
+    def fetchone(self):
+        """
+        Fetch one record
+        :return Record
+        """
+        return self.cursor.fetchone()
+
+
+    def fetchall(self):
+        """
+        Fetch all records
+        :return Record
+        """
+        return self.cursor.fetchall()
+
+class MysqliteClient(SqlClient):
+    """
+    Sqlite client
+    """
+    def __init__(self):
+        SqlClient.__init__(self)
+
+    def __del__(self):
+        self.cursor.close()
+        self.conn.close()
+
+    @classmethod
+    def convert_type(cls, type):
+        if type == int:
+            return 'bigint'
+        elif type == float:
+            return 'decimal(20,8)'
+        elif type == str:
+            return 'varchar(75)'
+        else:
+            raise NotImplementedError('Type (%s) has not been defined yet.' % type)
+
+    @classmethod
+    def get_auto_increment_keyword(cls):
+        return "auto_increment"
+
+    def connect(self, **kwargs):
+        """
+        Connect
+        :return:
+        """
+        host = kwargs['host']
+        port = kwargs['port']
+        user = kwargs['user']
+        pwd = kwargs['pwd']
+        schema = kwargs['schema']
+        self.conn = pymysql.connect(host=host,
+                                    port=port,
+                                    user=user,
+                                    password=pwd,
+                                    db=schema,
+                                    charset='utf8mb4',
+                                    cursorclass=pymysql.cursors.DictCursor)
         self.cursor = self.conn.cursor()
         return self.conn is not None and self.cursor is not None
 

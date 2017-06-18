@@ -21,11 +21,12 @@ class RiskManager(object):
             self.balance = balance
             self.available_balance = available_balance
 
-    def __init__(self):
+    def __init__(self, instmt_list):
         """
         Constructor
         """
         self.__exchanges = {}
+        self.__instmt_list = instmt_list
 
     def register_exchange(self, exchange):
         """
@@ -60,55 +61,48 @@ class RiskManager(object):
         assert message.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE, \
                 "MsgType %s is not new order single" % message.MsgType
         exchange = message.Instrument.SecurityExchange.value.upper()
-        instmt = message.Instrument.Symbol.value.upper()
-        digital_currency = instmt[0:3]
-        fiat_currency = instmt[3:]
+        instmt = self.__instmt_list.get(message.Instrument.SecurityExchange.value, message.Instrument.Symbol.value)
         assert exchange in self.__exchanges.keys(), "No exchange %s is defined" % exchange
-        assert digital_currency in self.__exchanges[exchange].keys(), \
-                "No currency %s is defined in exchange %s" % (digital_currency, exchange)
-        assert fiat_currency in self.__exchanges[exchange].keys(), \
-            "No currency %s is defined in exchange %s" % (fiat_currency, exchange)
+        assert instmt.quote_currency in self.__exchanges[exchange].keys(), \
+                "No currency %s is defined in exchange %s" % (instmt.quote_currency, exchange)
+        assert instmt.base_currency in self.__exchanges[exchange].keys(), \
+            "No currency %s is defined in exchange %s" % (instmt.base_currency, exchange)
         if message.Side.value == Fix.Tags.Side.Values.BUY:
-            exch_fiat_available = self.__exchanges[exchange][fiat_currency].available_balance
+            exch_fiat_available = self.__exchanges[exchange][instmt.base_currency].available_balance
             fiat_risk = message.Price.value * message.OrderQtyData.OrderQty.value
             return fiat_risk < exch_fiat_available
         elif message.Side.value == Fix.Tags.Side.Values.SELL:
-            exch_digital_available = self.__exchanges[exchange][digital_currency].available_balance
+            exch_digital_available = self.__exchanges[exchange][instmt.quote_currency].available_balance
             digital_risk = message.OrderQtyData.OrderQty.value
             return digital_risk < exch_digital_available
         else:
             raise NotImplementedError("Side %s not implemented." % message.Side.value)
 
-    @staticmethod
-    def update_risk_exposure_by_message(message, risklevels):
+    def update_risk_exposure_by_message(self, message, risklevels):
         """
         Update risk exposure by message
         :param message: FIX message
         :param risklevels: Map of risk levels
         """
         if message.MsgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
-            instmt = message.Instrument.Symbol.value.upper()
-            digital_currency = instmt[0:3]
-            fiat_currency = instmt[3:]
-            assert digital_currency in risklevels.keys(), "Cannot find currency %s" % digital_currency
-            assert fiat_currency in risklevels.keys(), "Cannot find currency %s" % fiat_currency
+            instmt = self.__instmt_list.get(message.Instrument.SecurityExchange.value, message.Instrument.Symbol.value)
+            assert instmt.quote_currency in risklevels.keys(), "Cannot find currency %s" % instmt.quote_currency
+            assert instmt.base_currency in risklevels.keys(), "Cannot find currency %s" % instmt.base_currency
             side = message.Side.value
             price = message.Price.value
             qty = message.OrderQtyData.OrderQty.value
 
             # Deduce the available balance
             if side == Fix.Tags.Side.Values.BUY:
-                risklevels[fiat_currency].available_balance -= price * qty
+                risklevels[instmt.base_currency].available_balance -= price * qty
             elif side == Fix.Tags.Side.Values.SELL:
-                risklevels[digital_currency].available_balance -= qty
+                risklevels[instmt.quote_currency].available_balance -= qty
             else:
                 raise NotImplementedError("Side has not yet been implemented." % side)
         elif message.MsgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
-            instmt = message.Instrument.Symbol.value.upper()
-            digital_currency = instmt[0:3]
-            fiat_currency = instmt[3:]
-            assert digital_currency in risklevels.keys(), "Cannot find currency %s" % digital_currency
-            assert fiat_currency in risklevels.keys(), "Cannot find currency %s" % fiat_currency
+            instmt = self.__instmt_list.get(message.Instrument.SecurityExchange.value, message.Instrument.Symbol.value)
+            assert instmt.quote_currency in risklevels.keys(), "Cannot find currency %s" % instmt.quote_currency
+            assert instmt.base_currency in risklevels.keys(), "Cannot find currency %s" % instmt.base_currency
             execType = message.ExecType.value
             if execType == Fix.Tags.ExecType.Values.REJECTED:
                 side = message.Side.value
@@ -117,9 +111,9 @@ class RiskManager(object):
 
                 # Revert the available balance
                 if side == Fix.Tags.Side.Values.BUY:
-                    risklevels[fiat_currency].available_balance += price * qty
+                    risklevels[instmt.base_currency].available_balance += price * qty
                 elif side == Fix.Tags.Side.Values.SELL:
-                    risklevels[digital_currency].available_balance += qty
+                    risklevels[instmt.quote_currency].available_balance += qty
                 else:
                     raise NotImplementedError("Side has not yet been implemented." % side)
             elif execType == Fix.Tags.ExecType.Values.TRADE:
@@ -129,13 +123,13 @@ class RiskManager(object):
 
                 # Adjust the balance
                 if side == Fix.Tags.Side.Values.BUY:
-                    risklevels[fiat_currency].balance -= price * qty
-                    risklevels[digital_currency].available_balance += qty
-                    risklevels[digital_currency].balance += qty
+                    risklevels[instmt.base_currency].balance -= price * qty
+                    risklevels[instmt.quote_currency].available_balance += qty
+                    risklevels[instmt.quote_currency].balance += qty
                 elif side == Fix.Tags.Side.Values.SELL:
-                    risklevels[fiat_currency].available_balance += price * qty
-                    risklevels[fiat_currency].balance += price * qty
-                    risklevels[digital_currency].balance -= qty
+                    risklevels[instmt.base_currency].available_balance += price * qty
+                    risklevels[instmt.base_currency].balance += price * qty
+                    risklevels[instmt.quote_currency].balance -= qty
             elif execType == Fix.Tags.ExecType.Values.ORDER_STATUS:
                 if message.LeavesQty.value == 0:
                     side = message.Side.value
@@ -145,15 +139,15 @@ class RiskManager(object):
 
                     # Update the balance when the order is completed
                     if side == Fix.Tags.Side.Values.BUY:
-                        risklevels[fiat_currency].balance -= price * qty
-                        risklevels[fiat_currency].available_balance += message.Price.value * unfilled_qty
-                        risklevels[digital_currency].available_balance += qty
-                        risklevels[digital_currency].balance += qty
+                        risklevels[instmt.base_currency].balance -= price * qty
+                        risklevels[instmt.base_currency].available_balance += message.Price.value * unfilled_qty
+                        risklevels[instmt.quote_currency].available_balance += qty
+                        risklevels[instmt.quote_currency].balance += qty
                     elif side == Fix.Tags.Side.Values.SELL:
-                        risklevels[fiat_currency].available_balance += price * qty
-                        risklevels[fiat_currency].balance += price * qty
-                        risklevels[digital_currency].balance -= qty
-                        risklevels[digital_currency].available_balance += unfilled_qty
+                        risklevels[instmt.base_currency].available_balance += price * qty
+                        risklevels[instmt.base_currency].balance += price * qty
+                        risklevels[instmt.quote_currency].balance -= qty
+                        risklevels[instmt.quote_currency].available_balance += unfilled_qty
             elif execType in [Fix.Tags.ExecType.Values.CANCELED,
                               Fix.Tags.ExecType.Values.EXPIRED,
                               Fix.Tags.ExecType.Values.DONE_FOR_DAY,
@@ -164,9 +158,9 @@ class RiskManager(object):
 
                 # Revert the remaining qty on the available balance
                 if side == Fix.Tags.Side.Values.BUY:
-                    risklevels[fiat_currency].available_balance += price * qty
+                    risklevels[instmt.base_currency].available_balance += price * qty
                 elif side == Fix.Tags.Side.Values.SELL:
-                    risklevels[digital_currency].available_balance += qty
+                    risklevels[instmt.quote_currency].available_balance += qty
                 else:
                     raise NotImplementedError("Side has not yet been implemented." % side)
         elif message.MsgType == Fix.Tags.MsgType.Values.POSITIONREPORT:

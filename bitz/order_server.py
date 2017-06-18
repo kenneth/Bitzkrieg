@@ -7,6 +7,8 @@ from bitz.risk_manager import RiskManager
 from bitz.market_data_feed import MarketDataFeed
 from bitz.util import update_fixtime, fixmsg2dict
 from bitz.market_data import Snapshot
+from bitz.fix_message_factory import FixMessageFactory
+from bitz.instrument import InstrumentList
 from datetime import datetime
 from typing import Union, List, Tuple
 from uuid import uuid4 as uuid
@@ -36,7 +38,8 @@ class OrderServer:
                  journal_db: AbstractJournalDatabase,
                  realtime_db: AbstractRealtimeDatabase,
                  risk_manager: RiskManager,
-                 market_data_feed: MarketDataFeed):
+                 market_data_feed: MarketDataFeed,
+                 instrument_list: InstrumentList):
         """
         Constructor
         """
@@ -47,6 +50,7 @@ class OrderServer:
         self.exchanges = {}
         self.current_exec_id = 0
         self.market_data_feed = market_data_feed
+        self.instrument_list = instrument_list
 
     def __del__(self):
         """
@@ -149,6 +153,18 @@ class OrderServer:
             assert err_msg == "", "Error (%s) is found." % err_msg
             assert len(responses) == 1, "Expect to have only one response."
 
+    def initialize_exchange_positions(self):
+        """
+        Initialize exchange positions
+        :return:
+        """
+        for exchange_name, exchange in self.exchanges.items():
+            req = FixMessageFactory.create_order_mass_status_request(reqId=self.now_string() + str(uuid()),
+                                                                     exchange=exchange_name)
+            _, err_msg = self.request(req)
+            assert err_msg == "", "Error (%s) is found." % err_msg
+
+
     def valid_risk_limit(self, message: Fix.Messages.NewOrderSingle):
         """
         Valid the risk limit
@@ -190,6 +206,8 @@ class OrderServer:
             key = message.OrdStatusReqID.value
         elif msgType == Fix.Tags.MsgType.Values.POSITIONREPORT:
             key = message.PosMaintRptID.value
+        elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
+            key = message.MassStatusReqID.value
         else:
             raise NotImplementedError("MsgType (%s) has not yet been implemented." % msgType)
 
@@ -219,7 +237,7 @@ class OrderServer:
         # Update risk exposure
         exchange = message.Instrument.SecurityExchange.value
         exchange_risk = self.risk_manager.get_exchange_balance(exchange)
-        RiskManager.update_risk_exposure_by_message(message, exchange_risk)
+        self.risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
         # Check the message type
         if msgType == Fix.Tags.MsgType.Values.NEWORDERSINGLE:
@@ -248,6 +266,11 @@ class OrderServer:
 
         # Check the message type
         if msgType == Fix.Tags.MsgType.Values.EXECUTIONREPORT:
+            if request is not None and request.MsgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
+                # Order mass status request does not provide symbol.
+                # Therefore, need to find out the symbol by the instrument list
+                pass
+
             if message.OrdStatus.value in [Fix.Tags.OrdStatus.Values.CANCELED,
                                            Fix.Tags.OrdStatus.Values.FILLED,
                                            Fix.Tags.OrdStatus.Values.PARTIALLY_FILLED]:
@@ -265,7 +288,7 @@ class OrderServer:
         if msgType not in [Fix.Tags.MsgType.Values.ORDERCANCELREJECT]:
             exchange = message.Instrument.SecurityExchange.value
             exchange_risk = self.risk_manager.get_exchange_balance(exchange)
-            RiskManager.update_risk_exposure_by_message(message, exchange_risk)
+            self.risk_manager.update_risk_exposure_by_message(message, exchange_risk)
 
     def __supply_information_if_missing(self, req, message: Fix.Messages.ExecutionReport):
         """

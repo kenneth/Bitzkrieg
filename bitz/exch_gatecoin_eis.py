@@ -285,6 +285,7 @@ class ExchGatecoinEis(Exchange):
         fix_message.PosMaintRptID.value = ExchGatecoinEis.__create_unique_id()
         fix_message.Instrument.SecurityExchange.value = self.get_name()
         fix_message.ClearingBusinessDate.value = datetime.utcnow().strftime("%Y%m%d")
+        fix_message.Account.value = self.eig.key
         for balance in balances:
             currency = balance["currency"]
             total_balance = balance["balance"]

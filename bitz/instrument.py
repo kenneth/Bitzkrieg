@@ -3,12 +3,14 @@ class Instrument:
     """
     Instrument
     """
-    def __init__(self, exchange, instmt_name, usd_rate, price_min_size, qty_min_size):
-        self.exchange = exchange
-        self.instmt_name = instmt_name
-        self.usd_rate = usd_rate
-        self.price_min_size = price_min_size
-        self.qty_min_size = qty_min_size
+    def __init__(self, **kwargs):
+        self.exchange = kwargs["exchange"]
+        self.instmt_name = kwargs["instmt_name"]
+        self.usd_rate = kwargs["usd_rate"]
+        self.price_min_size = kwargs["price_min_size"]
+        self.qty_min_size = kwargs["qty_min_size"]
+        self.base_currency = kwargs["base_currency"]
+        self.quote_currency = kwargs["quote_currency"]
 
 class InstrumentList:
     """

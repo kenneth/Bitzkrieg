@@ -7,6 +7,7 @@ from bitz.file_market_data_feed import FileMarketDataFeed
 from bitz.exch_backtesting import ExchBacktesting
 from bitz.logger import ConsoleLogger
 from bitz.FIX50SP2 import FIX50SP2 as Fix
+from bitz.instrument import Instrument, InstrumentList
 from typing import Tuple
 from uuid import uuid4 as uuid
 import unittest
@@ -21,15 +22,28 @@ class TOrderServer(unittest.TestCase):
         Initialize order server
         :return: Order server and the backtesting exchange gateway
         """
+        instrument_list = InstrumentList()
+        instrument_list.insert(Instrument(exchange=TOrderServer.exchange_name,
+                                          instmt_name=TOrderServer.instmt,
+                                          usd_rate=1,
+                                          price_min_size=0.01,
+                                          qty_min_size=0.01,
+                                          base_currency='USD',
+                                          quote_currency='BTC'))
         journal_db = InternalJournalDatabase()
         realtime_db = InternalRealtimeDatabase()
-        risk_manager = RiskManager()
+        risk_manager = RiskManager(instrument_list)
 
         test_files = [os.path.join('bitz', 'test', 'exch_quoine_btcusd_snapshot_20170407.csv')]
         market_data_feed = FileMarketDataFeed(ConsoleLogger.static_logger)
         market_data_feed.connect(files=test_files)
 
-        order_server = OrderServer(ConsoleLogger.static_logger, journal_db, realtime_db, risk_manager, market_data_feed)
+        order_server = OrderServer(ConsoleLogger.static_logger,
+                                   journal_db,
+                                   realtime_db,
+                                   risk_manager,
+                                   market_data_feed,
+                                   InstrumentList)
 
         # Register the gateway
         gw = ExchBacktesting(self.exchange_name, market_data_feed)

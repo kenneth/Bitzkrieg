@@ -34,9 +34,9 @@ def main():
     market_data_feed = factory.create_market_data_feed(logger)
     journal_db = factory.create_journal_database()
     realtime_db = factory.create_realtime_database()
-    risk_manager = factory.create_risk_manager()
-    order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed)
     instmt_list = factory.create_instrument_list()
+    risk_manager = factory.create_risk_manager(instmt_list)
+    order_server = factory.create_order_server(logger, journal_db, realtime_db, risk_manager, market_data_feed, instmt_list)
     factory.create_exchanges(logger, order_server, market_data_feed)
 
     # Initialize exchange risk
