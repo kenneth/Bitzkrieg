@@ -111,6 +111,7 @@ class FixMessageFactory(object):
         report = cls.create_execution_report(symbol=req.Instrument.Symbol.value,
                                            exchange=req.Instrument.SecurityExchange.value,
                                            clordid=req.ClOrdID.value,
+                                           orderid=req.ClOrdID.value,
                                            transacttime=datetime.utcnow().strftime("%Y%m%dT%H:%M:%S.%f"),
                                            ordstatus=Fix.Tags.OrdStatus.Values.REJECTED,
                                            exectype=Fix.Tags.ExecType.Values.REJECTED)
@@ -180,7 +181,6 @@ class FixMessageFactory(object):
         report.CxlRejReason.value = cancelrejreason
         report.CxlRejResponseTo.value = cancelrejresponseto
         report.Text.value = cancelrejtext
-        report.Side.value = side
         return report
 
     @classmethod
