@@ -10,6 +10,7 @@ import hmac
 from requests import auth
 from urllib.parse import urlparse
 from uuid import uuid4 as uuid
+import json
 
 class ExchBitmexRestApiConnector(RestApiConnector):
     """
@@ -66,13 +67,19 @@ class ExchBitmexRestApiConnector(RestApiConnector):
         """
         return ExchBitmexRestApiConnector.APIKeyAuth(self._public_key, self._private_key)
 
-    def generate_headers(self):
+    def generate_headers(self, params):
         """
         Generate headers
         """
         return {'user-agent': 'liquidbot-1.0',
                   'content-type': 'application/json',
                   'accept': 'application/json' }
+
+    def format_data(self, params):
+        """
+        Format the data to exchange desirable format
+        """
+        return json.dumps(params)
 
 class ExchBitmex(Exchange):
     """

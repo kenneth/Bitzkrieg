@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 import hmac
 import hashlib
 import urllib
-from requests import auth
 from bitz.FIX50SP2 import FIX50SP2 as Fix
 from uuid import uuid4 as uuid
 from bitz.fix_message_factory import FixMessageFactory
@@ -30,6 +29,31 @@ class ExchPoloniexRestApiConnector(RestApiConnector):
                                   public_key,
                                   private_key,
                                   ExchPoloniexRestApiConnector.URL)
+
+    def generate_auth(self):
+        """
+        Generate authentication
+        """
+        return None
+
+    def generate_headers(self, data):
+        """
+        Generate headers
+        """
+        signature = hmac.new(secret.encode(), urllib.parse.urlencode(data).encode(),
+                             digestmod=hashlib.sha512).hexdigest()
+        header = {
+            'Key': key,
+            'Sign': signature
+        }
+
+        return header
+
+    def format_data(self, params):
+        """
+        Format the data to exchange desirable format
+        """
+        return params
 
 class ExchPoloniex(object):
     """
@@ -58,15 +82,6 @@ class ExchPoloniex(object):
         :return: Name
         """
         return 'Poloniex'
-
-    def send_request(self, data):
-        signature = hmac.new(secret.encode(), urllib.parse.urlencode(data).encode(),
-                             digestmod=hashlib.sha512).hexdigest()
-        header = {
-            'Key': key,
-            'Sign': signature
-        }
-        return requests.post('https://poloniex.com/tradingApi', data=data, headers=header)
 
     def request(self, req):
         """
@@ -206,6 +221,12 @@ class ExchPoloniex(object):
 
         return fix_responses, err_msg
 
+    def send_request(self, data):
+        """
+        Handle using api connector to send request
+        """
+        return self.api_connector.send_request('', RestApiConnector.HTTPMethod.POST, data)
+
     # Poloniex support IOC, FOK, post only as well but not implemented here.
     def request_new_order_single(self, req):
         """
@@ -290,10 +311,8 @@ class ExchPoloniex(object):
 if __name__ == '__main__':
     # Run "curl icanhazip.com" to get the outgoing IP before generating the key pair.
 
-    # key = input("What is the public key? ")
-    # secret = input("What is the private key? ")
-    key = 'EVDNY1BY-NCAA8T2D-P5CDATQA-CSFMY1U2'
-    secret = 'c68d25a511ee41b96afb9367db7eafcdbac7cb2400698e8fd72be7d087101800c4b9249e4e9eceb4807b0b62683532533726ddcf25eada69ae713dda4feeb04a'
+    key = input("What is the public key? ")
+    secret = input("What is the private key? ")
 
     # setup
     exch = ExchPoloniex(ConsoleLogger.static_logger, key, secret)
