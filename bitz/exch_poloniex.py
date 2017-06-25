@@ -148,12 +148,84 @@ class ExchPoloniex(object):
                     clordid=req.ClOrdID.value,
                     cancelrejtext=err_msg)
                 fix_responses.append(fix_response)
+        elif msgType == Fix.Tags.MsgType.Values.ORDERSTATUSREQUEST:
+            ##############################################################################################
+            # Order Status Request
+            # as Poloniex does not support query close order directly, this is done by mass request + trades of an order
+            ##############################################################################################
+            mass_req = FixMessageFactory.create_order_mass_status_request(reqId=str(uuid()),
+                                                                     exchange=self.get_name())
+            mass_responses, err_msg = self.request(mass_req)
+
+            if err_msg == "":
+                # if the order is still open, can get from mass status request
+                for fix_msg in mass_responses:
+                    if req.OrderID.value != fix_msg.OrderID.value:
+                        continue
+                    # order found in open order list
+                    fix_responses.append(fix_msg)
+                if len(fix_responses) == 0:
+                    # not in order orders, check its fill...
+                    response = self.request_order_trades(req.OrderID.value)
+                    if response is None:
+                        err_msg = "No response from the exchange connector"
+                    elif response.status_code == 200:
+                        response = response.json()
+                        err_msg = response.get('error', '')
+
+                        fix_message = Fix.Messages.ExecutionReport()
+                        fix_message.ExecType.value = Fix.Tags.ExecType.Values.ORDER_STATUS;
+                        fix_message.Instrument.Symbol.value = req.Instrument.Symbol.value
+                        fix_message.Instrument.SecurityExchange.value = req.Instrument.SecurityExchange.value
+                        fix_message.OrderID.value = req.OrderID.value
+                        # only limit order for poloniex
+                        fix_message.OrdType.value = Fix.Tags.OrdType.Values.LIMIT
+
+                        if err_msg == '':
+                            totalAmount = 0
+                            filledQty = 0
+                            for trade in response:
+                                filledQty += trade['total']
+                                totalAmount += trade['total'] * trade['rate']
+
+                            side = Fix.Tags.Side.Values.BUY if trade['type'] == 'buy' \
+                                else Fix.Tags.Side.Values.SELL
+                            orderQty = filledQty
+
+                            avg_price= totalAmount / filledQty if totalAmount > 0 else 0
+
+                            fix_message.Side.value = side
+                            fix_message.OrderQtyData.OrderQty.value = orderQty
+                            fix_message.LeavesQty.value = orderQty - filledQty
+                            fix_message.CumQty.value = filledQty
+                            fix_message.Price.value = avg_price
+                            # cannot determine whether fully fill or partial fill
+                            fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.FILLED
+                            fix_message.AvgPx.value = fix_message.Price.value
+
+                        else:
+                            # cannot retrieve trades for the order, assume cancelled with no fill
+                            fix_message.Side.value = Fix.Tags.Side.Values.BUY
+                            fix_message.OrderQtyData.OrderQty.value = 0
+                            fix_message.LeavesQty.value = 0
+                            fix_message.CumQty.value = 0
+                            fix_message.Price.value = 0
+                            # cannot determine whether cancelled or
+                            fix_message.OrdStatus.value = Fix.Tags.OrdStatus.Values.DONE_FOR_DAY
+                            fix_message.AvgPx.value = fix_message.Price.value
+                            fix_message.Text.value = err_msg
+                            if err_msg == 'Order not found, or you are not the person who placed it.':
+                                err_msg = ''
+
+                        fix_responses.append(fix_message)
+
+
 
         elif msgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST:
             ##############################################################################################
             # Order Mass Status Request
             ##############################################################################################
-            response = self.request_order_mass_status_request()
+            response = self.request_order_mass_status_request(req)
             if response is None:
                 err_msg = "No response from the exchange connector"
             elif response.status_code == 200:
@@ -266,8 +338,14 @@ class ExchPoloniex(object):
                   'nonce': ExchPoloniexRestApiConnector.generate_nonce()}
         return self.send_request(params)
 
+    # use by
+    def request_order_trades(self, orderID):
+        params = {'command': 'returnOrderTrades', 'orderNumber': orderID,
+                  'nonce': ExchPoloniexRestApiConnector.generate_nonce()}
+        return self.send_request(params)
+
     # Poloniex supports filter by currency but we simply retrieve all for now
-    def request_order_mass_status_request(self):
+    def request_order_mass_status_request(self, req):
         assert req.MsgType == Fix.Tags.MsgType.Values.ORDERMASSSTATUSREQUEST, \
             "Order request is not ORDERMASSSTATUSREQUEST"
         params = {'command': 'returnOpenOrders', 'currencyPair': 'all',
@@ -311,8 +389,10 @@ class ExchPoloniex(object):
 if __name__ == '__main__':
     # Run "curl icanhazip.com" to get the outgoing IP before generating the key pair.
 
-    key = input("What is the public key? ")
-    secret = input("What is the private key? ")
+    # key = input("What is the public key? ")
+    # secret = input("What is the private key? ")
+    key = 'EVDNY1BY-NCAA8T2D-P5CDATQA-CSFMY1U2'
+    secret = 'c68d25a511ee41b96afb9367db7eafcdbac7cb2400698e8fd72be7d087101800c4b9249e4e9eceb4807b0b62683532533726ddcf25eada69ae713dda4feeb04a'
 
     # setup
     exch = ExchPoloniex(ConsoleLogger.static_logger, key, secret)
@@ -368,6 +448,19 @@ if __name__ == '__main__':
     print(fixmsg2dict(report[0]))
     assert err_msg == ""
 
+    orderID = report[0].OrderID.value
+
+    print()
+    print('Single order status req for open order')
+    req = FixMessageFactory.create_order_status_request(exchange=exch.get_name(),
+                                                        symbol='BTC_ETH',
+                                                        orderid=orderID,
+                                                        reqId=str(uuid()))
+    report, err_msg = exch.request(req)
+    print(err_msg)
+    print(fixmsg2dict(report[0]))
+    assert err_msg == ""
+
     print()
     print('Cancelling of the far away buy order...')
     req = FixMessageFactory.create_order_cancel_request(exchange='Poloniex',
@@ -378,6 +471,19 @@ if __name__ == '__main__':
     print(err_msg)
     print(fixmsg2dict(report[0]))
     assert err_msg == ""
+
+    print()
+    print('Single order status req for cancelled order')
+    req = FixMessageFactory.create_order_status_request(exchange=exch.get_name(),
+                                                        symbol='BTC_ETH',
+                                                        orderid=orderID,
+                                                        reqId=str(uuid()))
+    report, err_msg = exch.request(req)
+    print(err_msg)
+    print(fixmsg2dict(report[0]))
+    assert err_msg == ''
+    assert fixmsg2dict(report[0])['Text'] == 'Order not found, or you are not the person who placed it.'
+
 
     # try out other command
     if 1 == 1:
