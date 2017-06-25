@@ -389,10 +389,8 @@ class ExchPoloniex(object):
 if __name__ == '__main__':
     # Run "curl icanhazip.com" to get the outgoing IP before generating the key pair.
 
-    # key = input("What is the public key? ")
-    # secret = input("What is the private key? ")
-    key = 'EVDNY1BY-NCAA8T2D-P5CDATQA-CSFMY1U2'
-    secret = 'c68d25a511ee41b96afb9367db7eafcdbac7cb2400698e8fd72be7d087101800c4b9249e4e9eceb4807b0b62683532533726ddcf25eada69ae713dda4feeb04a'
+    key = input("What is the public key? ")
+    secret = input("What is the private key? ")
 
     # setup
     exch = ExchPoloniex(ConsoleLogger.static_logger, key, secret)
