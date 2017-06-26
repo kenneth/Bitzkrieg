@@ -37,7 +37,7 @@ class RestApiConnector(object):
         """
         return int(round(time() * 1000))
 
-    def generate_headers(self):
+    def generate_headers(self, data):
         """
         Generate headers
         """
