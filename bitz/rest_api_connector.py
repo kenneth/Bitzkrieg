@@ -1,6 +1,5 @@
 #!/bin/python
 import requests
-import json
 from time import time
 class RestApiConnector(object):
     """
@@ -38,7 +37,7 @@ class RestApiConnector(object):
         """
         return int(round(time() * 1000))
 
-    def generate_headers(self):
+    def generate_headers(self, data):
         """
         Generate headers
         """
@@ -47,6 +46,12 @@ class RestApiConnector(object):
     def generate_auth(self):
         """
         Generate authentication
+        """
+        raise NotImplementedError("Not yet implemented.")
+
+    def format_data(self, params):
+        """
+        Format the data to exchange desirable format
         """
         raise NotImplementedError("Not yet implemented.")
 
@@ -59,9 +64,9 @@ class RestApiConnector(object):
         :return: JSON object
         """
         url = self.url + command
-        headers = self.generate_headers()
+        data = "" if params is None else self.format_data(params)
+        headers = self.generate_headers(data)
         auth = self.generate_auth()
-        data = "" if params is None else json.dumps(params)
 
         if httpMethod == RestApiConnector.HTTPMethod.DELETE:
             R = requests.delete
